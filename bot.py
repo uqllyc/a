@@ -98,7 +98,7 @@ class ReportModal(discord.ui.Modal):
 
         now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
         report_embed = discord.Embed(title="🚨【通報】", description=self.report_reason.value, color=0xff0000)
-        report_embed.add_field(name="通報者", value=f"{interaction.user.mention} ({interaction.user.id})")
+        report_embed.add_field(name="通報者", value=f"{interaction.user.mention} ({interaction.user.name} / ID: `{interaction.user.id}`)")
         report_embed.add_field(name="通報日時", value=now_jst)
         
         await log_channel.send(embed=report_embed)
@@ -143,17 +143,26 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     else:
         sent_msg = await board_channel.send(embed=embed, view=post_view)
 
-    # ログ送信
+    # ログ送信（管理者用ログの強化）
     if log_channel:
         log_embed = discord.Embed(
-            title=f"【投稿ログ #{post_count}】",
+            title=f"📋 【投稿ログ #{post_count}】",
             description=raw_text,
             color=0x2b2d31
         )
-        log_embed.add_field(name="投稿者", value=f"{interaction.user.mention} ({interaction.user.id})")
-        log_embed.add_field(name="表示タイプ", value="匿名" if is_anonymous else "非匿名")
-        log_embed.add_field(name="投稿時間", value=now_jst)
-        log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
+        # 投稿者の実アカウント情報を明確に記録
+        user_info = f"{interaction.user.mention}\n**名前:** {interaction.user.name}\n**ID:** `{interaction.user.id}`"
+        log_embed.add_field(name="👤 投稿者（本人）", value=user_info, inline=True)
+        log_embed.add_field(name="👁️ 表示形式", value="匿名" if is_anonymous else "非匿名", inline=True)
+        
+        if reply_target:
+            log_embed.add_field(name="💬 返信先", value=reply_target, inline=True)
+            
+        has_file = "あり" if files else "なし"
+        log_embed.add_field(name="🖼️ 画像添付", value=has_file, inline=True)
+        log_embed.add_field(name="⏰ 投稿時間", value=now_jst, inline=True)
+        log_embed.add_field(name="🔗 メッセージリンク", value=sent_msg.jump_url, inline=False)
+        
         await log_channel.send(embed=log_embed)
 
     if not interaction.response.is_done():
@@ -251,6 +260,9 @@ async def on_message(message: discord.Message):
         return
 
     if message.channel.id == BOARD_CHANNEL_ID:
+        # 最優先で削除APIを呼び出し（削除速度最速化）
+        delete_task = bot.loop.create_task(message.delete())
+
         user_id = message.author.id
 
         # 画像投稿モードのユーザーからの送信時
@@ -262,9 +274,9 @@ async def on_message(message: discord.Message):
                 file_data = await attachment.to_file()
                 files.append(file_data)
 
-            # メッセージ即時削除
+            # 削除の完了を待機
             try:
-                await message.delete()
+                await delete_task
             except Exception:
                 pass
 
@@ -283,9 +295,9 @@ async def on_message(message: discord.Message):
             )
             return
 
-        # 投稿モード以外で直接送られた不要なメッセージを削除
+        # 投稿モード以外の通常のメッセージ投稿の場合も削除を待機
         try:
-            await message.delete()
+            await delete_task
         except Exception:
             pass
 
