@@ -162,7 +162,7 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板パネル",
-        description="用途に合わせて下のボタンを押して投稿してください。\n\n"
+        description="**匿名。**\n\n"
                     "🔹 **匿名**: 名前を隠して投稿\n"
                     "⚙️ **非匿名**: Discord名を表示して投稿\n"
                     "🚨 **通報する**: 違反内容を管理者に通知",
