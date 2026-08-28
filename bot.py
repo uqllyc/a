@@ -111,9 +111,14 @@ async def on_message(message: discord.Message):
             except Exception:
                 pass
 
-            body_text = message.content if message.content else "（画像のみ）"
+            # 本文を||で囲んでスポイラー化（黒枠で隠す）
+            raw_text = message.content if message.content else "（画像のみ）"
+            spoilered_text = f"||{raw_text}||"
+
             if user_config["reply_target"]:
-                body_text = f"> **{user_config['reply_target']} への返信**\n" + body_text
+                body_text = f"> **{user_config['reply_target']} への返信**\n" + spoilered_text
+            else:
+                body_text = spoilered_text
 
             is_anon = user_config["is_anonymous"]
             author_name = "匿名" if is_anon else message.author.display_name
@@ -133,11 +138,11 @@ async def on_message(message: discord.Message):
             else:
                 sent_msg = await board_channel.send(embed=embed, view=post_view)
 
-            # ログ
+            # ログ（ログチャンネル内では隠さずに表示）
             if log_channel:
                 log_embed = discord.Embed(
                     title=f"【投稿ログ #{post_count}】",
-                    description=body_text,
+                    description=raw_text,
                     color=0x2b2d31
                 )
                 log_embed.add_field(name="投稿者", value=f"{message.author.mention} ({message.author.id})")
