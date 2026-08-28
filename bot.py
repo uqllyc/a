@@ -1,5 +1,4 @@
 import os
-import asyncio
 import threading
 from datetime import datetime, timezone, timedelta
 from flask import Flask
@@ -12,8 +11,8 @@ JST = timezone(timedelta(hours=+9))
 # 投稿番号カウンター（メモリ上で管理）
 post_count = 0
 
-# 画像投稿を待機するユーザーの管理
-waiting_users = {}
+# 投稿待機用スレッドと設定の管理
+waiting_threads = {}
 
 # ==========================================
 # 1. Renderのポート監視エラー回避用Webサーバー
@@ -45,26 +44,45 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 自分だけにしか見えない案内メッセージ送信関数 ---
+# --- プライベートスレッド作成による完全秘匿投稿関数 ---
 async def start_attachment_post(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
-    target_str = f"（{reply_target} 宛て）" if reply_target else ""
+    board_channel = bot.get_channel(BOARD_CHANNEL_ID)
     
-    msg = (
-        f"**匿名で投稿 {target_str}**\n\n"
-        f"メッセージや画像をこのチャンネルに入力・送信してください。\n"
-        f"※送信後、あなたの元メッセージは自動で消去されて掲示板に反映されます。"
-    )
-    
-    # 自分だけにしか見えない（ephemeral）メッセージを送信
-    await interaction.response.send_message(msg, ephemeral=True)
-    notice_msg = await interaction.original_response()
+    if not board_channel or not isinstance(board_channel, discord.TextChannel):
+        await interaction.response.send_message("エラー: 投稿用チャンネルが見つかりません。", ephemeral=True)
+        return
 
-    waiting_users[interaction.user.id] = {
+    # 自分だけにしか見えないプライベートスレッドを作成
+    target_str = f"（{reply_target} 宛て）" if reply_target else ""
+    thread_name = f"投稿作成-{interaction.user.name}"
+    
+    try:
+        thread = await board_channel.create_thread(
+            name=thread_name,
+            type=discord.ChannelType.private_thread,
+            auto_archive_duration=60
+        )
+        await thread.add_user(interaction.user)
+    except Exception as e:
+        await interaction.response.send_message(f"スレッド作成エラー: {e}", ephemeral=True)
+        return
+
+    # スレッドの中に案内を送信
+    msg = (
+        f"**匿名 {target_str}**\n\n"
+        f"メッセージや画像をこのチャンネルに入力・送信してください。\n"
+        f"送信後、あなたの元メッセージは自動で消去されて掲示板に反映されます。"
+    )
+    await thread.send(msg)
+
+    # 待機リストにスレッドIDを記録
+    waiting_threads[thread.id] = {
+        "user_id": interaction.user.id,
         "is_anonymous": is_anonymous,
-        "reply_target": reply_target,
-        "channel_id": interaction.channel_id,
-        "notice_message": notice_msg
+        "reply_target": reply_target
     }
+
+    await interaction.response.send_message(f"専用の投稿スレッドを用意しました: {thread.mention}", ephemeral=True)
 
 # --- ユーザーからの直接メッセージを監視 ---
 @bot.event
@@ -74,27 +92,13 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # 1. ボタンを押して投稿待機状態のユーザーの場合
-    if message.author.id in waiting_users:
-        user_config = waiting_users[message.author.id]
+    # 1. 作成されたプライベートスレッド内での送信メッセージ処理
+    if message.channel.id in waiting_threads:
+        thread_config = waiting_threads[message.channel.id]
 
-        if message.channel.id == user_config["channel_id"]:
-            # 最優先で元メッセージを即時削除
-            try:
-                await message.delete()
-            except Exception:
-                pass
-
-            # 登録情報を削除
-            del waiting_users[message.author.id]
-
-            # 案内メッセージ（ephemeral）を削除
-            notice_msg = user_config.get("notice_message")
-            if notice_msg:
-                try:
-                    await notice_msg.delete()
-                except Exception:
-                    pass
+        if message.author.id == thread_config["user_id"]:
+            # 登録解除
+            del waiting_threads[message.channel.id]
 
             board_channel = bot.get_channel(BOARD_CHANNEL_ID)
             log_channel = bot.get_channel(LOG_CHANNEL_ID)
@@ -111,15 +115,14 @@ async def on_message(message: discord.Message):
                 file_data = await attachment.to_file()
                 files_to_send.append(file_data)
 
-            # 本文の取得（黒枠なし）
             raw_text = message.content if message.content else "（画像のみ）"
 
-            if user_config["reply_target"]:
-                body_text = f"> **{user_config['reply_target']} への返信**\n" + raw_text
+            if thread_config["reply_target"]:
+                body_text = f"> **{thread_config['reply_target']} への返信**\n" + raw_text
             else:
                 body_text = raw_text
 
-            is_anon = user_config["is_anonymous"]
+            is_anon = thread_config["is_anonymous"]
             author_name = "匿名" if is_anon else message.author.display_name
 
             embed = discord.Embed(description=body_text, color=0x000000)
@@ -130,7 +133,7 @@ async def on_message(message: discord.Message):
             else:
                 embed.set_author(name=header_text, icon_url=message.author.display_avatar.url)
 
-            # 投稿を送信
+            # 掲示板へ投稿送信
             post_view = PostItemView(post_num=post_count)
             if files_to_send:
                 sent_msg = await board_channel.send(embed=embed, files=files_to_send, view=post_view)
@@ -150,8 +153,15 @@ async def on_message(message: discord.Message):
                 log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
                 await log_channel.send(embed=log_embed)
 
-    # 2. ボタンを押さずに直接送信されたメッセージ（誤送信防止のため即削除）
-    else:
+            # 使用した作業用スレッドを即時削除
+            try:
+                await message.channel.delete()
+            except Exception:
+                pass
+            return
+
+    # 2. メインチャンネルへ直接送信されたメッセージ（誤送信防止）
+    if message.channel.id == BOARD_CHANNEL_ID:
         try:
             await message.delete()
         except Exception:
