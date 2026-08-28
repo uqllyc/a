@@ -5,115 +5,228 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>投稿</title>
   <style>
-    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background-color: #000000; color: #ffffff; margin: 0; padding: 16px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 480px; background: #000000; padding: 0px; }
-    .warning { background: #2a2100; color: #ffcc00; padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; line-height: 1.4; }
-    .form-group { margin-bottom: 20px; }
-    label { display: block; font-size: 13px; color: #888888; margin-bottom: 8px; }
-    input[type="text"], textarea { width: 100%; background: #111111; border: 1px solid #222222; color: #ffffff; padding: 14px; border-radius: 12px; font-size: 15px; outline: none; }
-    textarea { height: 120px; resize: none; }
-    input[type="text"]:focus, textarea:focus { border-color: #5865F2; }
-    .radio-group { background: #111111; padding: 6px 14px; border-radius: 12px; border: 1px solid #222222; }
-    .radio-label { display: flex; justify-content: space-between; align-items: center; color: #ffffff; font-size: 15px; padding: 10px 0; cursor: pointer; border-bottom: 1px solid #222222; }
-    .radio-label:last-child { border-bottom: none; }
-    .file-upload { background: #111111; border: 1px solid #222222; padding: 16px; border-radius: 12px; text-align: left; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: space-between; }
-    .file-upload input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-    .btn-submit { width: 100%; background: #5865F2; color: #ffffff; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-    .btn-submit:disabled { background: #333333; color: #777777; }
-    #status { margin-top: 14px; text-align: center; font-size: 14px; }
+    :root {
+      --bg-color: #313338;
+      --card-bg: #2b2d31;
+      --input-bg: #1e1f22;
+      --text-color: #f2f3f5;
+      --sub-text: #949ba4;
+      --accent-color: #5865f2;
+      --border-color: #3f4147;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--sub-text);
+    }
+    textarea, input[type="text"] {
+      width: 100%;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px;
+      color: var(--text-color);
+      font-size: 15px;
+      box-sizing: border-box;
+      outline: none;
+    }
+    textarea {
+      height: 120px;
+      resize: vertical;
+    }
+    /* 匿名・非匿名 切り替えスイッチ/ボタン */
+    .toggle-group {
+      display: flex;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 4px;
+      gap: 4px;
+    }
+    .toggle-option {
+      flex: 1;
+      text-align: center;
+      padding: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--sub-text);
+      transition: background-color 0.2s, color 0.2s;
+    }
+    .toggle-option.active {
+      background-color: var(--accent-color);
+      color: #ffffff;
+    }
+    /* ファイル選択領域 */
+    .file-input-wrapper {
+      position: relative;
+      background-color: var(--input-bg);
+      border: 1px dashed var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      cursor: pointer;
+    }
+    .file-input-wrapper input[type="file"] {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .file-name {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--accent-color);
+      word-break: break-all;
+    }
+    button[type="submit"] {
+      width: 100%;
+      background-color: var(--accent-color);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button[type="submit"]:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    #status-msg {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
 
 <div class="container">
-  <div class="warning">
-    ⚠️ このフォームの内容は..に送られます。パスワードやその他の個人情報を送らないでください。
-  </div>
-
   <form id="postForm" enctype="multipart/form-data">
+    
+    <!-- 本文 -->
     <div class="form-group">
-      <label>投稿</label>
-      <textarea name="content" placeholder="本文（任意・画像・動画のみの投稿も可）"></textarea>
+      <label>本文（任意・画像・動画のみの投稿も可）</label>
+      <textarea id="content" name="content" placeholder="本文を入力..."></textarea>
     </div>
 
+    <!-- レス -->
     <div class="form-group">
-      <label>レス</label>
-      <input type="text" name="ref_id" placeholder="例: 99 / n99">
-      <div style="font-size:12px; color:#666; margin-top:4px;">引用する投稿番号（任意）</div>
+      <label>レス（任意）</label>
+      <input type="text" id="ref_id" name="ref_id" placeholder="例: 99">
     </div>
 
+    <!-- 投稿方法（タップで切替） -->
     <div class="form-group">
-      <label>投稿方法 *</label>
-      <div class="radio-group">
-        <label class="radio-label">
-          <span>匿名</span>
-          <input type="radio" name="anonymous" value="true" checked>
-        </label>
-        <label class="radio-label">
-          <span>非匿名</span>
-          <input type="radio" name="anonymous" value="false">
-        </label>
+      <label>投稿方法</label>
+      <div class="toggle-group">
+        <div class="toggle-option active" id="btn-anon" onclick="setAnonymous(true)">匿名</div>
+        <div class="toggle-option" id="btn-real" onclick="setAnonymous(false)">非匿名</div>
       </div>
+      <input type="hidden" id="anonymous" name="anonymous" value="true">
     </div>
 
+    <!-- 画像・動画添付 -->
     <div class="form-group">
       <label>画像・動画</label>
-      <div class="file-upload">
-        <span id="fileName">ファイルをアップロード<br><small style="color:#666;">1個のファイル（20MB未満）をアップロードできます。</small></span>
-        <input type="file" name="file" id="fileInput" accept="image/*,video/*">
+      <div class="file-input-wrapper">
+        <span>📁 ファイルを選択（写真・動画）</span>
+        <input type="file" id="file" name="file" accept="image/*,video/*" onchange="showFileName(this)">
       </div>
+      <div id="file-name" class="file-name"></div>
     </div>
 
-    <button type="submit" class="btn-submit" id="submitBtn">送信</button>
-  </form>
+    <button type="submit" id="submit-btn">送信</button>
+    <div id="status-msg"></div>
 
-  <div id="status"></div>
+  </form>
 </div>
 
 <script>
-  const fileInput = document.getElementById('fileInput');
-  const fileName = document.getElementById('fileName');
-  const form = document.getElementById('postForm');
-  const submitBtn = document.getElementById('submitBtn');
-  const status = document.getElementById('status');
+  // 匿名 / 非匿名の切替処理
+  function setAnonymous(isAnon) {
+    document.getElementById('anonymous').value = isAnon ? "true" : "false";
+    const btnAnon = document.getElementById('btn-anon');
+    const btnReal = document.getElementById('btn-real');
 
-  fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      fileName.innerHTML = '📎 ' + e.target.files[0].name;
+    if (isAnon) {
+      btnAnon.classList.add('active');
+      btnReal.classList.remove('active');
     } else {
-      fileName.innerHTML = 'ファイルをアップロード<br><small style="color:#666;">1個のファイル（20MB未満）をアップロードできます。</small>';
+      btnReal.classList.add('active');
+      btnAnon.classList.remove('active');
     }
-  });
+  }
 
-  form.addEventListener('submit', async (e) => {
+  // ファイル名表示
+  function showFileName(input) {
+    const display = document.getElementById('file-name');
+    if (input.files && input.files[0]) {
+      display.textContent = '選択中: ' + input.files[0].name;
+    } else {
+      display.textContent = '';
+    }
+  }
+
+  // 送信処理
+  document.getElementById('postForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    submitBtn.disabled = true;
-    status.textContent = '送信中...';
+    const btn = document.getElementById('submit-btn');
+    const msg = document.getElementById('status-msg');
 
-    const formData = new FormData(form);
+    btn.disabled = true;
+    msg.textContent = '送信中...';
+    msg.style.color = '#949ba4';
+
+    const formData = new FormData(this);
 
     try {
       const response = await fetch('/submit', {
         method: 'POST',
         body: formData
       });
-      const result = await response.json();
+      const resData = await response.json();
 
-      if (response.ok) {
-        status.style.color = '#57F287';
-        status.textContent = result.message;
-        form.reset();
-        fileName.innerHTML = 'ファイルをアップロード<br><small style="color:#666;">1個のファイル（20MB未満）をアップロードできます。</small>';
+      if (response.ok && resData.success) {
+        msg.textContent = '✅ 投稿が完了しました！';
+        msg.style.color = '#23a55a';
+        document.getElementById('postForm').reset();
+        document.getElementById('file-name').textContent = '';
+        setAnonymous(true);
       } else {
-        status.style.color = '#ED4245';
-        status.textContent = result.message || 'エラーが発生しました。';
+        msg.textContent = '❌ ' + (resData.message || '送信に失敗しました');
+        msg.style.color = '#f23f43';
       }
     } catch (err) {
-      status.style.color = '#ED4245';
-      status.textContent = '送信に失敗しました。';
+      msg.textContent = '❌ 通信エラーが発生しました';
+      msg.style.color = '#f23f43';
     } finally {
-      submitBtn.disabled = false;
+      btn.disabled = false;
     }
   });
 </script>
