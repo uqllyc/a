@@ -249,7 +249,7 @@ async def on_message(message: discord.Message):
             # DMで選択メニューを送付
             try:
                 await message.author.send(
-                    content="🖼️ **画像を受け取りました！**\n「匿名」または「非匿名」を選択し、メッセージを入力してください。",
+                    content="**画像を受け取りました！**\n「匿名」または「非匿名」を選択し、メッセージを入力してください。",
                     view=ImageChoiceView()
                 )
             except discord.Forbidden:
