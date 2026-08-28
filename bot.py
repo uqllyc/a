@@ -1,6 +1,8 @@
 import os
+import io
 import threading
 from datetime import datetime, timezone, timedelta
+import aiohttp
 from flask import Flask
 import discord
 from discord.ext import commands
@@ -65,6 +67,16 @@ class PostModal(discord.ui.Modal):
         )
         self.add_item(self.content)
 
+        # 画像URL入力欄（任意）
+        self.image_url = discord.ui.TextInput(
+            label='画像URL（任意）',
+            style=discord.TextStyle.short,
+            placeholder='https://... (画像の直リンクを入力)',
+            required=False,
+            max_length=500,
+        )
+        self.add_item(self.image_url)
+
     async def on_submit(self, interaction: discord.Interaction):
         global post_count
         post_count += 1
@@ -79,16 +91,15 @@ class PostModal(discord.ui.Modal):
             )
             return
 
-        # 日時を取得（日本時間）
+        await interaction.response.defer(ephemeral=True)
+
         now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
         author_name = "匿名" if self.is_anonymous else interaction.user.display_name
         
-        # 本文の組み立て（返信先がある場合）
         message_body = self.content.value
         if self.reply_target:
             message_body = f"> **{self.reply_target} への返信**\n" + message_body
 
-        # 埋め込みメッセージ（Embed）を作成
         embed = discord.Embed(
             description=message_body,
             color=0x2b2d31
@@ -104,9 +115,35 @@ class PostModal(discord.ui.Modal):
                 icon_url=interaction.user.display_avatar.url
             )
 
-        # 投稿メッセージの下に付属するボタンを作成
+        # --- 画像をDiscord内部添付ファイルとして処理 ---
+        file_to_send = None
+        img_url = self.image_url.value.strip()
+
+        if img_url and (img_url.startswith("http://") or img_url.startswith("https://")):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(img_url) as resp:
+                        if resp.status == 200:
+                            img_data = await resp.read()
+                            # 拡張子の判定
+                            ext = "png"
+                            if ".jpg" in img_url.lower() or ".jpeg" in img_url.lower():
+                                ext = "jpg"
+                            elif ".gif" in img_url.lower():
+                                ext = "gif"
+                            
+                            filename = f"image_{post_count}.{ext}"
+                            file_to_send = discord.File(io.BytesIO(img_data), filename=filename)
+                            embed.set_image(url=f"attachment://{filename}")
+            except Exception as e:
+                print(f"画像読み込みエラー: {e}")
+
+        # 送信処理
         post_view = PostItemView(post_num=post_count)
-        sent_message = await board_channel.send(embed=embed, view=post_view)
+        if file_to_send:
+            sent_message = await board_channel.send(embed=embed, file=file_to_send, view=post_view)
+        else:
+            sent_message = await board_channel.send(embed=embed, view=post_view)
 
         # 管理者ログ用 Embed
         if log_channel:
@@ -121,7 +158,7 @@ class PostModal(discord.ui.Modal):
             log_embed.add_field(name="対象メッセージ", value=sent_message.jump_url)
             await log_channel.send(embed=log_embed)
 
-        await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
+        await interaction.followup.send("投稿が完了しました！", ephemeral=True)
 
 
 # --- 通報用モーダル ---
@@ -171,7 +208,6 @@ class PostItemView(discord.ui.View):
         super().__init__(timeout=None)
         self.post_num = post_num
 
-    # 返信ボタン（2つ）
     @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.primary, custom_id="item_reply_anon")
     async def reply_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         target = f"#{self.post_num}"
@@ -182,7 +218,6 @@ class PostItemView(discord.ui.View):
         target = f"#{self.post_num}"
         await interaction.response.send_modal(PostModal(is_anonymous=False, reply_target=target))
 
-    # 新規投稿ボタン（2つ）
     @discord.ui.button(label="匿名投稿", style=discord.ButtonStyle.success, custom_id="item_post_anon")
     async def post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PostModal(is_anonymous=True))
@@ -191,7 +226,6 @@ class PostItemView(discord.ui.View):
     async def post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PostModal(is_anonymous=False))
 
-    # 通報ボタン
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="item_report")
     async def report_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         target = f"#{self.post_num}"
