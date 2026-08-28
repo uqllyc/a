@@ -9,10 +9,8 @@ from discord.ext import commands
 from flask import Flask, jsonify, render_template, request
 
 # --------------------------------------------------
-# Webサーバー（Flask）の設定
+# 設定とファイル制御
 # --------------------------------------------------
-app = Flask(__name__)
-
 BOARD_CHANNEL_ID = 1542868096640098444
 LOG_CHANNEL_ID = 1542866592566747166
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -39,6 +37,9 @@ def save_post_id(post_id):
 
 current_post_id = load_post_id()
 
+# --------------------------------------------------
+# Discord Bot
+# --------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -60,23 +61,15 @@ class PostButtonsView(discord.ui.View):
 
   def __init__(self):
     super().__init__(timeout=None)
-
-  @discord.ui.button(
-      label="投稿",
-      style=discord.ButtonStyle.primary,
-      emoji="✉️",
-      custom_id="launch_frame_app",
-  )
-  async def launch_app(
-      self, interaction: discord.Interaction, button: discord.ui.Button
-  ):
-    # 警告ポップアップを出さずに即座にアプリ内UIとして表示させる応答
-    embed = discord.Embed(
-        title="📝 投稿フォーム",
-        description=f"[👉 ここをタップして投稿画面を開く]({WEB_URL})",
-        color=0x2B2D31,
+    # 1タップで直接開くリンクボタン
+    self.add_item(
+        discord.ui.Button(
+            label="投稿",
+            style=discord.ButtonStyle.link,
+            url=WEB_URL,
+            emoji="✉️",
+        )
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
   @discord.ui.button(
       label="通報",
@@ -126,13 +119,28 @@ class PostButtonsView(discord.ui.View):
 async def setup_panel(interaction: discord.Interaction):
   embed = discord.Embed(
       title="📝 匿名掲示板",
-      description="下の「投稿」ボタンを押すと入力画面が開きます。",
+      description="下の「投稿」ボタンを押すと入力画面が開きます。\n画像や動画も一緒にアップロードできます！",
       color=0x5865F2,
   )
-  await interaction.channel.send(embed=embed, view=PostButtonsView())
+  view = discord.ui.View()
+  view.add_item(
+      discord.ui.Button(
+          label="投稿",
+          style=discord.ButtonStyle.link,
+          url=WEB_URL,
+          emoji="✉️",
+      )
+  )
+  await interaction.channel.send(embed=embed, view=view)
   await interaction.response.send_message(
       "パネルを設置しました。", ephemeral=True
   )
+
+
+# --------------------------------------------------
+# Web Server
+# --------------------------------------------------
+app = Flask(__name__)
 
 
 @app.route("/")
