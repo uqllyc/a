@@ -14,7 +14,7 @@ JST = timezone(timedelta(hours=+9))
 post_count = 0
 
 # ==========================================
-# 1. Renderのポート監視エラー（No open ports）回避用Webサーバー
+# 1. Webサーバー（Render用）
 # ==========================================
 app = Flask(__name__)
 
@@ -32,7 +32,7 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# 2. Discord Bot の設定と処理
+# 2. Discord Bot 設定
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
 BOARD_CHANNEL_ID = int(os.environ.get("BOARD_CHANNEL_ID", "0"))
@@ -67,11 +67,10 @@ class PostModal(discord.ui.Modal):
         )
         self.add_item(self.content)
 
-        # 画像URL入力欄（任意）
         self.image_url = discord.ui.TextInput(
             label='画像URL（任意）',
             style=discord.TextStyle.short,
-            placeholder='https://... (画像の直リンクを入力)',
+            placeholder='https://... (画像の直リンクを貼るとDiscord内に取り込みます)',
             required=False,
             max_length=500,
         )
@@ -91,6 +90,7 @@ class PostModal(discord.ui.Modal):
             )
             return
 
+        # 処理中のメッセージを表示（タイムアウト防止）
         await interaction.response.defer(ephemeral=True)
 
         now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
@@ -115,7 +115,7 @@ class PostModal(discord.ui.Modal):
                 icon_url=interaction.user.display_avatar.url
             )
 
-        # --- 画像をDiscord内部添付ファイルとして処理 ---
+        # 外部URLの画像を読み込み、Discord内部ファイルに変換する処理
         file_to_send = None
         img_url = self.image_url.value.strip()
 
@@ -125,7 +125,7 @@ class PostModal(discord.ui.Modal):
                     async with session.get(img_url) as resp:
                         if resp.status == 200:
                             img_data = await resp.read()
-                            # 拡張子の判定
+                            
                             ext = "png"
                             if ".jpg" in img_url.lower() or ".jpeg" in img_url.lower():
                                 ext = "jpg"
@@ -133,19 +133,21 @@ class PostModal(discord.ui.Modal):
                                 ext = "gif"
                             
                             filename = f"image_{post_count}.{ext}"
+                            # Botがファイルとして保持する
                             file_to_send = discord.File(io.BytesIO(img_data), filename=filename)
+                            # 埋め込み画像に内部アタッチメントとして指定（外部リンクを遮断）
                             embed.set_image(url=f"attachment://{filename}")
             except Exception as e:
                 print(f"画像読み込みエラー: {e}")
 
-        # 送信処理
+        # メッセージ送信（ファイルとしてDiscord内に保存）
         post_view = PostItemView(post_num=post_count)
         if file_to_send:
             sent_message = await board_channel.send(embed=embed, file=file_to_send, view=post_view)
         else:
             sent_message = await board_channel.send(embed=embed, view=post_view)
 
-        # 管理者ログ用 Embed
+        # 管理者ログ
         if log_channel:
             log_embed = discord.Embed(
                 title=f"【投稿ログ #{post_count}】",
@@ -276,7 +278,6 @@ async def setup_panel(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=PanelView())
     await interaction.response.send_message("パネルを設置しました。", ephemeral=True)
 
-# 実行
 if __name__ == "__main__":
     if TOKEN:
         keep_alive()
