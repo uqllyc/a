@@ -5,17 +5,12 @@ from flask import Flask
 import discord
 from discord.ext import commands
 
-# JST（日本時間）の定義
 JST = timezone(timedelta(hours=+9))
-
-# 投稿番号カウンター（メモリ上で管理）
 post_count = 0
-
-# 画像投稿時の状態管理 {user_id: {"is_anonymous": bool, "reply_target": str or None}}
 pending_image_users = {}
 
 # ==========================================
-# 1. Renderのポート監視エラー回避用Webサーバー
+# 1. Webサーバー (Render用)
 # ==========================================
 app = Flask(__name__)
 
@@ -33,20 +28,20 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# 2. Discord Bot 設定
+# 2. Bot設定
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
-# ★ここに直接チャンネルID（18〜19桁の数字）を記入してください★
-BOARD_CHANNEL_ID = 1542991170760872057  # 掲示板チャンネルID
-LOG_CHANNEL_ID = 1542866592566747166    # 管理者用ログチャンネルID
+# ★ IDを入力 ★
+BOARD_CHANNEL_ID = 123456789012345678  # 掲示板チャンネルID
+LOG_CHANNEL_ID = 123456789012345678    # ログ用チャンネルID
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 通常投稿用モーダル（テキストのみ） ---
+# --- モーダル定義 ---
 class TextPostModal(discord.ui.Modal):
     def __init__(self, is_anonymous: bool, reply_target: str = None):
         target_str = f"（{reply_target} 宛て）" if reply_target else ""
@@ -73,7 +68,6 @@ class TextPostModal(discord.ui.Modal):
             reply_target=self.reply_target
         )
 
-# --- 通報用モーダル ---
 class ReportModal(discord.ui.Modal):
     def __init__(self, target_post: str = None):
         title_text = f'🚨 通報 ({target_post})' if target_post else '🚨 管理者への通報'
@@ -106,7 +100,7 @@ class ReportModal(discord.ui.Modal):
         await log_channel.send(embed=report_embed)
         await interaction.response.send_message("通報を送信しました。", ephemeral=True)
 
-# --- 投稿処理共通関数 ---
+# --- 投稿共通処理 ---
 async def send_board_post(interaction: discord.Interaction, content: str, is_anonymous: bool, reply_target: str = None, files: list = None):
     global post_count
 
@@ -138,7 +132,6 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     else:
         embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
 
-    # 各投稿には「7つのボタン（新規4種＋返信2種＋通報）」を添付
     post_view = PostItemView(post_num=post_count)
     
     if files:
@@ -146,7 +139,6 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     else:
         sent_msg = await board_channel.send(embed=embed, view=post_view)
 
-    # ログ送信（管理者用）
     if log_channel:
         log_embed = discord.Embed(
             title=f"📋 【投稿ログ #{post_count}】",
@@ -170,7 +162,6 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     if not interaction.response.is_done():
         await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
 
-# --- 画像投稿待機用の案内 ---
 async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
     pending_image_users[interaction.user.id] = {
         "is_anonymous": is_anonymous,
@@ -186,51 +177,41 @@ async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bo
         ephemeral=True
     )
 
-# ==========================================
-# ボタンコンポーネント
-# ==========================================
-
-# 1. メインパネル用（新規投稿のみ：4つ）
+# --- UIコンポーネント ---
 class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-        # 匿名
         btn_anon = discord.ui.Button(label="匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_anon")
         async def cb_anon(interaction: discord.Interaction):
             await interaction.response.send_modal(TextPostModal(is_anonymous=True))
         btn_anon.callback = cb_anon
         self.add_item(btn_anon)
 
-        # 非匿名
         btn_named = discord.ui.Button(label="非匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_named")
         async def cb_named(interaction: discord.Interaction):
             await interaction.response.send_modal(TextPostModal(is_anonymous=False))
         btn_named.callback = cb_named
         self.add_item(btn_named)
 
-        # 匿名画像
         btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
         async def cb_img_anon(interaction: discord.Interaction):
             await prompt_image_upload(interaction, is_anonymous=True)
         btn_img_anon.callback = cb_img_anon
         self.add_item(btn_img_anon)
 
-        # 非匿名画像
         btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
         async def cb_img_named(interaction: discord.Interaction):
             await prompt_image_upload(interaction, is_anonymous=False)
         btn_img_named.callback = cb_img_named
         self.add_item(btn_img_named)
 
-# 2. 各投稿メッセージ用（7つのボタン：新規4種 + 返信2種 + 通報）
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
         super().__init__(timeout=None)
         target_id = f"_{post_num}"
         reply_str = f"#{post_num}"
 
-        # --- 1行目: 新規投稿ボタン (4つ) ---
         btn_anon = discord.ui.Button(label="匿名", style=discord.ButtonStyle.primary, custom_id=f"btn_anon{target_id}", row=0)
         async def cb_anon(interaction: discord.Interaction):
             await interaction.response.send_modal(TextPostModal(is_anonymous=True))
@@ -255,7 +236,6 @@ class PostItemView(discord.ui.View):
         btn_img_named.callback = cb_img_named
         self.add_item(btn_img_named)
 
-        # --- 2行目: 返信 & 通報ボタン (3つ) ---
         btn_reply_anon = discord.ui.Button(label="匿名返信", style=discord.ButtonStyle.secondary, custom_id=f"btn_reply_anon{target_id}", row=1)
         async def cb_reply_anon(interaction: discord.Interaction):
             await interaction.response.send_modal(TextPostModal(is_anonymous=True, reply_target=reply_str))
@@ -274,13 +254,16 @@ class PostItemView(discord.ui.View):
         btn_report.callback = cb_report
         self.add_item(btn_report)
 
-# --- メッセージ検知（画像投稿の処理 ＆ 直接入力メッセージ削除） ---
+# ==========================================
+# 3. 超高速メッセージ検知 & 自動削除
+# ==========================================
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
     if message.channel.id == BOARD_CHANNEL_ID:
+        # ★一番最初に削除リクエストを発行して超高速で消す★
         delete_task = bot.loop.create_task(message.delete())
 
         user_id = message.author.id
@@ -288,15 +271,11 @@ async def on_message(message: discord.Message):
         if user_id in pending_image_users:
             config = pending_image_users.pop(user_id)
             
+            # 画像データの抽出（バックグラウンド処理）
             files = []
             for attachment in message.attachments:
                 file_data = await attachment.to_file()
                 files.append(file_data)
-
-            try:
-                await delete_task
-            except Exception:
-                pass
 
             fake_interaction = type('obj', (object,), {
                 'user': message.author,
@@ -310,16 +289,23 @@ async def on_message(message: discord.Message):
                 reply_target=config["reply_target"],
                 files=files
             )
+            
+            try:
+                await delete_task
+            except Exception:
+                pass
             return
 
+        # 誤投稿（そのまま文字を入力しただけ）の場合も削除完了を待機して処理を終了
         try:
             await delete_task
         except Exception:
             pass
+        return
 
     await bot.process_commands(message)
 
-# --- Bot起動処理 ---
+# --- 起動処理 ---
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
@@ -331,19 +317,17 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
-# --- パネル設置コマンド ---
 @bot.tree.command(name="setup_panel", description="掲示板パネルを設置します")
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="匿名 非匿名で投稿。\n"
+        description="匿名 非匿名で投稿?!\n"
                     "画像投稿時は「匿名画像」または「非匿名画像」を押した後に画像をチャットへ送信します。",
         color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
     await interaction.response.send_message("パネルを設置しました。", ephemeral=True)
 
-# 実行
 if __name__ == "__main__":
     if TOKEN:
         keep_alive()
