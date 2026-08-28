@@ -1,9 +1,7 @@
 import os
-import io
-import asyncio
 import threading
 from datetime import datetime, timezone, timedelta
-from flask import Flask, request, render_template_string
+from flask import Flask
 import discord
 from discord.ext import commands
 
@@ -21,215 +19,10 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ==========================================
-# 1. 投稿用Webフォーム (HTML/CSS)
-# ==========================================
-HTML_FORM = """
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>掲示板 投稿</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #313338;
-            color: #dbdee1;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-        }
-        .container {
-            width: 100%;
-            max-width: 400px;
-            background: #2b2d31;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-        h2 { font-size: 18px; margin-top: 0; color: #fff; }
-        label { font-size: 12px; font-weight: bold; color: #b5bac1; display: block; margin-top: 15px; }
-        textarea {
-            width: 100%; height: 100px; background: #1e1f22; border: none;
-            border-radius: 4px; color: #dbdee1; padding: 10px; box-sizing: border-box;
-            resize: vertical; font-size: 14px; margin-top: 5px;
-        }
-        input[type="file"] {
-            margin-top: 5px; color: #b5bac1; font-size: 14px; width: 100%;
-        }
-        .submit-btn {
-            width: 100%; background-color: #5865f2; color: white; border: none;
-            padding: 12px; border-radius: 4px; font-weight: bold; font-size: 15px;
-            margin-top: 20px; cursor: pointer; transition: 0.2s;
-        }
-        .submit-btn:hover { background-color: #4752c4; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>📝 {{ type_str }}投稿 {{ target_str }}</h2>
-        <form action="/submit" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="is_anon" value="{{ is_anon }}">
-            <input type="hidden" name="reply_target" value="{{ reply_target }}">
-            <input type="hidden" name="user_id" value="{{ user_id }}">
-            <input type="hidden" name="user_name" value="{{ user_name }}">
-            <input type="hidden" name="avatar_url" value="{{ avatar_url }}">
-
-            <label>メッセージ</label>
-            <textarea name="content" placeholder="メッセージを入力..." required></textarea>
-
-            <label>画像（任意）</label>
-            <input type="file" name="image" accept="image/*">
-
-            <button type="submit" class="submit-btn">投稿する</button>
-        </form>
-    </div>
-</body>
-</html>
-"""
-
-HTML_SUCCESS = """
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>送信完了</title>
-    <style>
-        body {
-            background-color: #313338; color: #23a55a; font-family: sans-serif;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100vh; margin: 0; text-align: center;
-        }
-        h2 { margin-bottom: 10px; }
-        p { color: #b5bac1; font-size: 14px; }
-    </style>
-</head>
-<body>
-    <h2>✨ 投稿完了しました！</h2>
-    <p>画面を閉じてDiscordに戻ってください。</p>
-</body>
-</html>
-"""
-
-# ==========================================
-# 2. Flask ルーティング設定
-# ==========================================
+# Keep-alive 用の最小限 Flask Web サーバー
 @app.route('/')
 def home():
     return "Bot is running!"
-
-@app.route('/upload')
-def upload_page():
-    is_anon = request.args.get('is_anon', 'true') == 'true'
-    reply_target = request.args.get('reply_target', '')
-    user_id = request.args.get('user_id', '')
-    user_name = request.args.get('user_name', '')
-    avatar_url = request.args.get('avatar_url', '')
-
-    type_str = "匿名" if is_anon else "名前表示"
-    target_str = f"({reply_target}宛て)" if reply_target else ""
-
-    return render_template_string(
-        HTML_FORM,
-        is_anon=is_anon,
-        reply_target=reply_target,
-        user_id=user_id,
-        user_name=user_name,
-        avatar_url=avatar_url,
-        type_str=type_str,
-        target_str=target_str
-    )
-
-@app.route('/submit', methods=['POST'])
-def submit_post():
-    is_anon = request.form.get('is_anon') == 'True'
-    reply_target = request.form.get('reply_target')
-    user_id = request.form.get('user_id')
-    user_name = request.form.get('user_name')
-    avatar_url = request.form.get('avatar_url')
-    content = request.form.get('content')
-    
-    image_file = request.files.get('image')
-    image_bytes = None
-    filename = None
-
-    if image_file and image_file.filename != '':
-        image_bytes = image_file.read()
-        filename = image_file.filename
-
-    # スレッドセーフにBotへ処理を投げる
-    asyncio.run_coroutine_threadsafe(
-        process_web_post(
-            is_anon=is_anon,
-            reply_target=reply_target,
-            user_id=user_id,
-            user_name=user_name,
-            avatar_url=avatar_url,
-            content=content,
-            image_bytes=image_bytes,
-            filename=filename
-        ),
-        bot.loop
-    )
-
-    return render_template_string(HTML_SUCCESS)
-
-async def process_web_post(is_anon, reply_target, user_id, user_name, avatar_url, content, image_bytes, filename):
-    global post_count
-    post_count += 1
-
-    board_channel = bot.get_channel(BOARD_CHANNEL_ID)
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-
-    if not board_channel:
-        print("エラー: BOARD_CHANNEL_ID が不正です")
-        return
-
-    now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-
-    body_text = content
-    if reply_target:
-        body_text = f"> **{reply_target} への返信**\n" + body_text
-
-    display_author = "匿名" if is_anon else user_name
-    embed = discord.Embed(description=body_text, color=0x2b2d31)
-    header_text = f"#{post_count} | {display_author} | {now_jst}"
-
-    if is_anon:
-        embed.set_author(name=header_text)
-    else:
-        embed.set_author(name=header_text, icon_url=avatar_url)
-
-    # 添付ファイルの作成
-    file_to_send = None
-    if image_bytes and filename:
-        file_to_send = discord.File(fp=io.BytesIO(image_bytes), filename=filename)
-
-    post_view = PostItemView(post_num=post_count)
-    
-    try:
-        if file_to_send:
-            sent_msg = await board_channel.send(embed=embed, file=file_to_send, view=post_view)
-        else:
-            sent_msg = await board_channel.send(embed=embed, view=post_view)
-
-        # ログ送信
-        if log_channel:
-            log_embed = discord.Embed(
-                title=f"【投稿ログ #{post_count}】",
-                description=body_text,
-                color=0x3498db
-            )
-            log_embed.add_field(name="投稿者", value=f"<@{user_id}> ({user_id})")
-            log_embed.add_field(name="表示タイプ", value="匿名" if is_anon else "名前表示")
-            log_embed.add_field(name="投稿時間", value=now_jst)
-            log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
-            await log_channel.send(embed=log_embed)
-    except Exception as e:
-        print(f"投稿送信時エラー: {e}")
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -241,35 +34,94 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# 3. Discord Bot UI & イベント
+# 投稿用モーダル (Discord内で直接入力する枠)
 # ==========================================
-async def send_upload_link(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
-    # Renderのホスト名取得（設定がない場合は自動生成）
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if not render_url:
-        # ディスコードのホストから動的に取るかデフォルト
-        render_url = "https://" + os.environ.get("RENDER_SERVICE_NAME", "app") + ".onrender.com"
+class PostModal(discord.ui.Modal):
+    def __init__(self, is_anon: bool, reply_target: str = None):
+        title_type = "匿名投稿" if is_anon else "名前表示投稿"
+        if reply_target:
+            title_type += f" ({reply_target}へ返信)"
+        
+        super().__init__(title=title_type)
+        self.is_anon = is_anon
+        self.reply_target = reply_target
 
-    target_param = reply_target if reply_target else ""
-    link = (
-        f"{render_url}/upload?"
-        f"is_anon={str(is_anonymous).lower()}&"
-        f"reply_target={target_param}&"
-        f"user_id={interaction.user.id}&"
-        f"user_name={interaction.user.display_name}&"
-        f"avatar_url={interaction.user.display_avatar.url}"
-    )
+        # メッセージ入力枠（大きめの縦長エリア）
+        self.content_input = discord.ui.TextInput(
+            label='メッセージ本文',
+            style=discord.TextStyle.paragraph,
+            placeholder='ここに投稿内容を入力してください...',
+            required=True,
+            max_length=2000,
+            row=0
+        )
+        self.add_item(self.content_input)
 
-    embed = discord.Embed(
-        description="下のボタンから投稿フォームを開いて投稿してください。",
-        color=0x5865f2
-    )
-    
-    view = discord.ui.View()
-    view.add_item(discord.ui.Button(label="投稿フォームを開く", url=link, style=discord.ButtonStyle.link))
+        # 画像URL入力枠（任意）
+        self.image_url_input = discord.ui.TextInput(
+            label='画像URL（任意）',
+            style=discord.TextStyle.short,
+            placeholder='https://... (画像の直リンクがあれば入力)',
+            required=False,
+            row=1
+        )
+        self.add_item(self.image_url_input)
 
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        global post_count
+        await interaction.response.defer(ephemeral=True)
 
+        post_count += 1
+        board_channel = bot.get_channel(BOARD_CHANNEL_ID)
+        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+
+        if not board_channel:
+            await interaction.followup.send("エラー: BOARD_CHANNEL_ID が設定されていません。", ephemeral=True)
+            return
+
+        now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+
+        body_text = self.content_input.value
+        if self.reply_target:
+            body_text = f"> **{self.reply_target} への返信**\n" + body_text
+
+        display_author = "匿名" if self.is_anon else interaction.user.display_name
+        
+        # 背景色になじむ真っ黒寄りの埋め込みカラー (0x000000)
+        embed = discord.Embed(description=body_text, color=0x000000)
+        header_text = f"#{post_count} | {display_author} | {now_jst}"
+
+        if self.is_anon:
+            embed.set_author(name=header_text)
+        else:
+            embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
+
+        # 画像URLが指定されている場合の設定
+        img_url = self.image_url_input.value.strip()
+        if img_url and (img_url.startswith("http://") or img_url.startswith("https://")):
+            embed.set_image(url=img_url)
+
+        post_view = PostItemView(post_num=post_count)
+        sent_msg = await board_channel.send(embed=embed, view=post_view)
+
+        # ログ送信
+        if log_channel:
+            log_embed = discord.Embed(
+                title=f"【投稿ログ #{post_count}】",
+                description=body_text,
+                color=0x2b2d31
+            )
+            log_embed.add_field(name="投稿者", value=f"{interaction.user.mention} ({interaction.user.id})")
+            log_embed.add_field(name="表示タイプ", value="匿名" if self.is_anon else "名前表示")
+            log_embed.add_field(name="投稿時間", value=now_jst)
+            log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
+            await log_channel.send(embed=log_embed)
+
+        await interaction.followup.send("投稿が送信されました！", ephemeral=True)
+
+# ==========================================
+# ボタン配置・各種コンポーネント
+# ==========================================
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
         super().__init__(timeout=None)
@@ -277,19 +129,19 @@ class PostItemView(discord.ui.View):
 
     @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.primary, custom_id="item_reply_anon")
     async def reply_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await send_upload_link(interaction, is_anonymous=True, reply_target=f"#{self.post_num}")
+        await interaction.response.send_modal(PostModal(is_anon=True, reply_target=f"#{self.post_num}"))
 
     @discord.ui.button(label="名前返信", style=discord.ButtonStyle.secondary, custom_id="item_reply_named")
     async def reply_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await send_upload_link(interaction, is_anonymous=False, reply_target=f"#{self.post_num}")
+        await interaction.response.send_modal(PostModal(is_anon=False, reply_target=f"#{self.post_num}"))
 
     @discord.ui.button(label="匿名投稿", style=discord.ButtonStyle.success, custom_id="item_post_anon")
     async def post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await send_upload_link(interaction, is_anonymous=True)
+        await interaction.response.send_modal(PostModal(is_anon=True))
 
     @discord.ui.button(label="名前投稿", style=discord.ButtonStyle.secondary, custom_id="item_post_named")
     async def post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await send_upload_link(interaction, is_anonymous=False)
+        await interaction.response.send_modal(PostModal(is_anon=False))
 
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="item_report")
     async def report_item(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -301,11 +153,11 @@ class PanelView(discord.ui.View):
 
     @discord.ui.button(label="匿名で投稿", style=discord.ButtonStyle.primary, custom_id="btn_post_anon")
     async def open_post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await send_upload_link(interaction, is_anonymous=True)
+        await interaction.response.send_modal(PostModal(is_anon=True))
 
     @discord.ui.button(label="名前表示で投稿", style=discord.ButtonStyle.secondary, custom_id="btn_post_named")
     async def open_post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await send_upload_link(interaction, is_anonymous=False)
+        await interaction.response.send_modal(PostModal(is_anon=False))
 
     @discord.ui.button(label="通報する", style=discord.ButtonStyle.danger, custom_id="btn_report")
     async def open_report(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -342,6 +194,9 @@ class ReportModal(discord.ui.Modal):
         await log_channel.send(embed=report_embed)
         await interaction.response.send_message("通報を送信しました。", ephemeral=True)
 
+# ==========================================
+# イベント・コマンド
+# ==========================================
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
@@ -359,7 +214,7 @@ async def setup_panel(interaction: discord.Interaction):
         description="🔹 **匿名投稿**: 名前を隠して投稿\n"
                     "⚙️ **名前投稿**: ユーザー名を表示して投稿\n"
                     "🚨 **通報**: 違反投稿を通知",
-        color=0x3498db
+        color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
     await interaction.response.send_message("パネルを設置しました。", ephemeral=True)
