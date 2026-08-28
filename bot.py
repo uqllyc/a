@@ -1,219 +1,252 @@
-import datetime
-import os
-from threading import Thread
-import discord
-from discord import app_commands
-from discord.ext import commands
-from flask import Flask
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>投稿</title>
+  <style>
+    :root {
+      --bg-color: #000000;         /* 背景：完全な黒 */
+      --card-bg: #111111;         /* カード背景：超暗色 */
+      --input-bg: #181818;        /* 入力欄背景 */
+      --text-color: #ffffff;      /* 文字色：白 */
+      --sub-text: #8e8e93;        /* サブテキスト */
+      --accent-color: #5865f2;    /* Discordブルー */
+      --border-color: #222222;    /* 枠線 */
+    }
 
-# --------------------------------------------------
-# Renderの In Progress 対策（ポート開放用ダミーWeb）
-# --------------------------------------------------
-app = Flask(__name__)
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
 
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
 
-@app.route('/')
-def home():
-  return 'Bot is active!'
+    .container {
+      width: 100%;
+      max-width: 480px;
+    }
 
+    .form-group {
+      margin-bottom: 18px;
+    }
 
-def run_flask():
-  port = int(os.environ.get('PORT', 10000))
-  app.run(host='0.0.0.0', port=port)
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--sub-text);
+      letter-spacing: -0.2px;
+    }
 
+    textarea, input[type="text"] {
+      width: 100%;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: var(--text-color);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
 
-# --------------------------------------------------
-# 【設定】IDとトークン
-# --------------------------------------------------
-BOARD_CHANNEL_ID = 1542868096640098444  # 掲示板チャンネルID
-LOG_CHANNEL_ID = 1542866592566747166  # 管理者用ログチャンネルID
-BOT_TOKEN = os.environ.get('DISCORD_TOKEN')
+    textarea:focus, input[type="text"]:focus {
+      border-color: var(--accent-color);
+    }
 
-post_count = 0
+    textarea {
+      height: 110px;
+      resize: none;
+    }
 
-# --------------------------------------------------
-# Discord Botの設定
-# --------------------------------------------------
-intents = discord.Intents.default()
-intents.message_content = True
+    /* 匿名 / 非匿名 セグメントスイッチ */
+    .toggle-group {
+      display: flex;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 4px;
+    }
 
+    .toggle-option {
+      flex: 1;
+      text-align: center;
+      padding: 9px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 7px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--sub-text);
+      transition: all 0.2s ease;
+    }
 
-class AnonymousBoardBot(commands.Bot):
+    .toggle-option.active {
+      background-color: var(--accent-color);
+      color: #ffffff;
+    }
 
-  def __init__(self):
-    super().__init__(command_prefix='!', intents=intents)
+    /* ファイル添付領域 */
+    .file-input-wrapper {
+      position: relative;
+      background-color: var(--input-bg);
+      border: 1px dashed var(--border-color);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+      cursor: pointer;
+    }
 
-  async def setup_hook(self):
-    self.add_view(PostButtonsView())
-    await self.tree.sync()
+    .file-input-wrapper input[type="file"] {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
 
+    .file-label {
+      font-size: 14px;
+      color: var(--sub-text);
+    }
 
-bot = AnonymousBoardBot()
+    .file-name {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--accent-color);
+      word-break: break-all;
+    }
 
+    button[type="submit"] {
+      width: 100%;
+      background-color: var(--accent-color);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: opacity 0.2s;
+    }
 
-# Discord内部で直接開く入力画面（モーダル：警告なし）
-class PostModal(discord.ui.Modal, title='投稿'):
+    button[type="submit"]:disabled {
+      opacity: 0.5;
+    }
 
-  def __init__(self):
-    super().__init__()
+    #status-msg {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
 
-  content = discord.ui.TextInput(
-      label='本文（任意）',
-      style=discord.TextStyle.paragraph,
-      placeholder='本文を入力してください',
-      required=False,
-      max_length=1800,
-  )
+<div class="container">
+  <form id="postForm" enctype="multipart/form-data">
+    
+    <div class="form-group">
+      <label>本文（任意・画像・動画のみも可）</label>
+      <textarea id="content" name="content" placeholder="投稿内容を入力..."></textarea>
+    </div>
 
-  ref_id = discord.ui.TextInput(
-      label='レス（任意）',
-      style=discord.TextStyle.short,
-      placeholder='例: 99 / n99',
-      required=False,
-  )
+    <div class="form-group">
+      <label>レス先番号（任意）</label>
+      <input type="text" id="ref_id" name="ref_id" placeholder="例: 99">
+    </div>
 
-  method = discord.ui.TextInput(
-      label='投稿方法（任意）',
-      style=discord.TextStyle.short,
-      placeholder='「匿名」または「非匿名」と入力（初期値: 匿名）',
-      default='匿名',
-      required=False,
-  )
+    <div class="form-group">
+      <label>投稿方法</label>
+      <div class="toggle-group">
+        <div class="toggle-option active" id="btn-anon" onclick="setAnonymous(true)">匿名</div>
+        <div class="toggle-option" id="btn-real" onclick="setAnonymous(false)">非匿名</div>
+      </div>
+      <input type="hidden" id="anonymous" name="anonymous" value="true">
+    </div>
 
-  async def on_submit(self, interaction: discord.Interaction):
-    global post_count
-    post_count += 1
+    <div class="form-group">
+      <label>画像・動画添付</label>
+      <div class="file-input-wrapper">
+        <span class="file-label">📷 タップして写真・動画を選択</span>
+        <input type="file" id="file" name="file" accept="image/*,video/*" onchange="showFileName(this)">
+      </div>
+      <div id="file-name" class="file-name"></div>
+    </div>
 
-    board_channel = interaction.guild.get_channel(BOARD_CHANNEL_ID)
-    log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+    <button type="submit" id="submit-btn">送信する</button>
+    <div id="status-msg"></div>
 
-    now = datetime.datetime.now()
-    time_str = f"今日 {now.strftime('%H:%M')}"
+  </form>
+</div>
 
-    is_anon = self.method.value.strip() != '非匿名'
-    author_name = '匿名' if is_anon else interaction.user.display_name
+<script>
+  function setAnonymous(isAnon) {
+    document.getElementById('anonymous').value = isAnon ? "true" : "false";
+    document.getElementById('btn-anon').classList.toggle('active', isAnon);
+    document.getElementById('btn-real').classList.toggle('active', !isAnon);
+  }
 
-    description_text = ''
-    if self.ref_id.value:
-      description_text += f'>>{self.ref_id.value}\n'
-    if self.content.value:
-      description_text += self.content.value
+  function showFileName(input) {
+    const display = document.getElementById('file-name');
+    if (input.files && input.files[0]) {
+      display.textContent = '選択中: ' + input.files[0].name;
+    } else {
+      display.textContent = '';
+    }
+  }
 
-    embed = discord.Embed(
-        description=description_text or '（本文なし）', color=0x2B2D31
-    )
-    embed.set_author(name=f'{post_count} : {author_name}')
-    embed.set_footer(text=time_str)
+  document.getElementById('postForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('submit-btn');
+    const msg = document.getElementById('status-msg');
 
-    if board_channel:
-      await board_channel.send(embed=embed, view=PostButtonsView())
+    btn.disabled = true;
+    msg.textContent = '送信中...';
+    msg.style.color = '#8e8e93';
 
-    if log_channel:
-      log_embed = discord.Embed(
-          title=f'【投稿ログ】No.{post_count}',
-          color=0x2B2D31,
-          timestamp=now,
-      )
-      log_embed.add_field(
-          name='投稿者',
-          value=f'{interaction.user.mention} ({interaction.user.name})',
-          inline=False,
-      )
-      log_embed.add_field(
-          name='投稿種別', value='匿名' if is_anon else '非匿名', inline=True
-      )
-      log_embed.add_field(
-          name='内容',
-          value=self.content.value or '（本文なし）',
-          inline=False,
-      )
-      await log_channel.send(embed=log_embed)
+    try {
+      const response = await fetch('/submit', {
+        method: 'POST',
+        body: new FormData(this)
+      });
+      const resData = await response.json();
 
-    await interaction.response.send_message(
-        '投稿が完了しました！', ephemeral=True
-    )
+      if (response.ok && resData.success) {
+        msg.textContent = '✅ 投稿しました';
+        msg.style.color = '#23a55a';
+        document.getElementById('postForm').reset();
+        document.getElementById('file-name').textContent = '';
+        setAnonymous(true);
+      } else {
+        msg.textContent = '❌ ' + (resData.message || 'エラーが発生しました');
+        msg.style.color = '#f23f43';
+      }
+    } catch (err) {
+      msg.textContent = '❌ 通信エラーが発生しました';
+      msg.style.color = '#f23f43';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
 
-
-# メッセージの下に付くボタン
-class PostButtonsView(discord.ui.View):
-
-  def __init__(self):
-    super().__init__(timeout=None)
-
-  @discord.ui.button(
-      label='投稿',
-      style=discord.ButtonStyle.secondary,
-      emoji='✉️',
-      custom_id='post_modal_button_native',
-  )
-  async def post_button(
-      self, interaction: discord.Interaction, button: discord.ui.Button
-  ):
-    # Discordの内部画面を直接表示（警告が出ない）
-    await interaction.response.send_modal(PostModal())
-
-  @discord.ui.button(
-      label='通報',
-      style=discord.ButtonStyle.danger,
-      custom_id='report_button_persistent',
-  )
-  async def report_button(
-      self, interaction: discord.Interaction, button: discord.ui.Button
-  ):
-    log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-    message = interaction.message
-    post_title = (
-        message.embeds[0].author.name if message.embeds else '不明な投稿'
-    )
-    post_content = (
-        message.embeds[0].description if message.embeds else '内容なし'
-    )
-
-    if log_channel:
-      report_embed = discord.Embed(
-          title='🚨 通報通知', color=0xED4245, timestamp=datetime.datetime.now()
-      )
-      report_embed.add_field(
-          name='通報者',
-          value=f'{interaction.user.mention} ({interaction.user.name})',
-          inline=False,
-      )
-      report_embed.add_field(
-          name='対象投稿', value=post_title, inline=False
-      )
-      report_embed.add_field(
-          name='投稿内容', value=post_content, inline=False
-      )
-      report_embed.add_field(
-          name='投稿URL', value=message.jump_url, inline=False
-      )
-      await log_channel.send(embed=report_embed)
-
-    await interaction.response.send_message(
-        '通報を受け付けました。', ephemeral=True
-    )
-
-
-# パネル設置コマンド
-@bot.tree.command(
-    name='setup_panel', description='掲示板に投稿ボタンパネルを設置します'
-)
-async def setup_panel(interaction: discord.Interaction):
-  embed = discord.Embed(
-      title='📝 匿名掲示板',
-      description='下の「投稿」ボタンを押すと入力画面が開きます。',
-      color=0x5865F2,
-  )
-  await interaction.channel.send(embed=embed, view=PostButtonsView())
-  await interaction.response.send_message(
-      'パネルを設置しました。', ephemeral=True
-  )
-
-
-if __name__ == '__main__':
-  # Renderの起動チェック用ポートを裏で起動
-  t = Thread(target=run_flask)
-  t.start()
-
-  if BOT_TOKEN:
-    bot.run(BOT_TOKEN)
+</body>
+</html>
