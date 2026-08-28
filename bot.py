@@ -1,4 +1,5 @@
 import os
+import asyncio
 import threading
 from datetime import datetime, timezone, timedelta
 from flask import Flask
@@ -10,6 +11,9 @@ JST = timezone(timedelta(hours=+9))
 
 # 投稿番号カウンター（メモリ上で管理）
 post_count = 0
+
+# 画像投稿を待機するユーザーの管理
+waiting_users = {}
 
 # ==========================================
 # 1. Renderのポート監視エラー回避用Webサーバー
@@ -41,93 +45,119 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 自分にしか見えない投稿フォームモーダル ---
-class EphemeralPostModal(discord.ui.Modal):
-    def __init__(self, is_anonymous: bool, reply_target: str = None):
-        self.is_anonymous = is_anonymous
-        self.reply_target = reply_target
-        
-        target_str = f"（{reply_target} 宛て）" if reply_target else ""
-        type_str = "匿名投稿" if is_anonymous else "非匿名投稿"
-        
-        super().__init__(title=f"{type_str}{target_str}")
+# --- 自分だけにしか見えない案内メッセージ送信関数 ---
+async def start_attachment_post(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
+    target_str = f"（{reply_target} 宛て）" if reply_target else ""
+    
+    msg = (
+        f"**匿名で投稿 {target_str}**\n\n"
+        f"メッセージや画像をこのチャンネルに入力・送信してください。\n"
+        f"※送信後、あなたの元メッセージは自動で消去されて掲示板に反映されます。"
+    )
+    
+    # 自分だけにしか見えない（ephemeral）メッセージを送信
+    await interaction.response.send_message(msg, ephemeral=True)
+    notice_msg = await interaction.original_response()
 
-        self.post_content = discord.ui.TextInput(
-            label='投稿本文',
-            style=discord.TextStyle.paragraph,
-            placeholder='本文を入力してください...',
-            required=False,
-            max_length=2000,
-        )
-        self.add_item(self.post_content)
+    waiting_users[interaction.user.id] = {
+        "is_anonymous": is_anonymous,
+        "reply_target": reply_target,
+        "channel_id": interaction.channel_id,
+        "notice_message": notice_msg
+    }
 
-        self.image_url = discord.ui.TextInput(
-            label='画像URL (任意)',
-            style=discord.TextStyle.short,
-            placeholder='https://... (画像がある場合はURLを貼れます)',
-            required=False,
-        )
-        self.add_item(self.image_url)
+# --- ユーザーからの直接メッセージを監視 ---
+@bot.event
+async def on_message(message: discord.Message):
+    global post_count
 
-    async def on_submit(self, interaction: discord.Interaction):
-        global post_count
-        
-        board_channel = bot.get_channel(BOARD_CHANNEL_ID)
-        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    if message.author.bot:
+        return
 
-        if not board_channel:
-            await interaction.response.send_message("エラー: 投稿先のチャンネルが見つかりません。", ephemeral=True)
-            return
+    # 1. ボタンを押して投稿待機状態のユーザーの場合
+    if message.author.id in waiting_users:
+        user_config = waiting_users[message.author.id]
 
-        post_count += 1
-        now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+        if message.channel.id == user_config["channel_id"]:
+            # 最優先で元メッセージを即時削除
+            try:
+                await message.delete()
+            except Exception:
+                pass
 
-        raw_text = self.post_content.value if self.post_content.value else "（画像のみ）"
+            # 登録情報を削除
+            del waiting_users[message.author.id]
 
-        if self.reply_target:
-            body_text = f"> **{self.reply_target} への返信**\n" + raw_text
-        else:
-            body_text = raw_text
+            # 案内メッセージ（ephemeral）を削除
+            notice_msg = user_config.get("notice_message")
+            if notice_msg:
+                try:
+                    await notice_msg.delete()
+                except Exception:
+                    pass
 
-        author_name = "匿名" if self.is_anonymous else interaction.user.display_name
+            board_channel = bot.get_channel(BOARD_CHANNEL_ID)
+            log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
-        embed = discord.Embed(description=body_text, color=0x000000)
-        header_text = f"#{post_count} | {author_name} | {now_jst}"
+            if not board_channel:
+                return
 
-        if self.is_anonymous:
-            embed.set_author(name=header_text)
-        else:
-            embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
+            post_count += 1
+            now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 
-        # 画像URLが入力されている場合
-        img_url_val = self.image_url.value.strip() if self.image_url.value else ""
-        if img_url_val.startswith("http://") or img_url_val.startswith("https://"):
-            embed.set_image(url=img_url_val)
+            # 添付ファイルを取得
+            files_to_send = []
+            for attachment in message.attachments:
+                file_data = await attachment.to_file()
+                files_to_send.append(file_data)
 
-        # 掲示板へ送信
-        post_view = PostItemView(post_num=post_count)
-        sent_msg = await board_channel.send(embed=embed, view=post_view)
+            # 本文の取得（黒枠なし）
+            raw_text = message.content if message.content else "（画像のみ）"
 
-        # 自分だけに送信完了通知（他の人には見えない）
-        await interaction.response.send_message("掲示板に投稿しました！", ephemeral=True)
+            if user_config["reply_target"]:
+                body_text = f"> **{user_config['reply_target']} への返信**\n" + raw_text
+            else:
+                body_text = raw_text
 
-        # ログの記録
-        if log_channel:
-            log_embed = discord.Embed(
-                title=f"【投稿ログ #{post_count}】",
-                description=raw_text,
-                color=0x2b2d31
-            )
-            log_embed.add_field(name="投稿者", value=f"{interaction.user.mention} ({interaction.user.id})")
-            log_embed.add_field(name="表示タイプ", value="匿名" if self.is_anonymous else "非匿名")
-            log_embed.add_field(name="投稿時間", value=now_jst)
-            log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
-            await log_channel.send(embed=log_embed)
+            is_anon = user_config["is_anonymous"]
+            author_name = "匿名" if is_anon else message.author.display_name
 
-# --- 自分にしか見えない案内画面を送る処理 ---
-async def open_private_post_window(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
-    # 自分だけにしか見えない入力フォームを開く
-    await interaction.response.send_modal(EphemeralPostModal(is_anonymous=is_anonymous, reply_target=reply_target))
+            embed = discord.Embed(description=body_text, color=0x000000)
+            header_text = f"#{post_count} | {author_name} | {now_jst}"
+
+            if is_anon:
+                embed.set_author(name=header_text)
+            else:
+                embed.set_author(name=header_text, icon_url=message.author.display_avatar.url)
+
+            # 投稿を送信
+            post_view = PostItemView(post_num=post_count)
+            if files_to_send:
+                sent_msg = await board_channel.send(embed=embed, files=files_to_send, view=post_view)
+            else:
+                sent_msg = await board_channel.send(embed=embed, view=post_view)
+
+            # ログの記録
+            if log_channel:
+                log_embed = discord.Embed(
+                    title=f"【投稿ログ #{post_count}】",
+                    description=raw_text,
+                    color=0x2b2d31
+                )
+                log_embed.add_field(name="投稿者", value=f"{message.author.mention} ({message.author.id})")
+                log_embed.add_field(name="表示タイプ", value="匿名" if is_anon else "非匿名")
+                log_embed.add_field(name="投稿時間", value=now_jst)
+                log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
+                await log_channel.send(embed=log_embed)
+
+    # 2. ボタンを押さずに直接送信されたメッセージ（誤送信防止のため即削除）
+    else:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+    await bot.process_commands(message)
 
 # --- 通報用モーダル ---
 class ReportModal(discord.ui.Modal):
@@ -162,21 +192,8 @@ class ReportModal(discord.ui.Modal):
         await log_channel.send(embed=report_embed)
         await interaction.response.send_message("通報を送信しました。", ephemeral=True)
 
-# --- 直接メッセージ（誤送信）は最速で消去 ---
-@bot.event
-async def on_message(message: discord.Message):
-    if message.author.bot:
-        return
-
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    await bot.process_commands(message)
-
 # ==========================================
-# 各投稿メッセージの下につくボタン一覧
+# 各投稿メッセージの下につくボタン一覧（指定順）
 # ==========================================
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
@@ -186,22 +203,22 @@ class PostItemView(discord.ui.View):
     # 1. 匿名
     @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="item_post_anon")
     async def post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await open_private_post_window(interaction, is_anonymous=True)
+        await start_attachment_post(interaction, is_anonymous=True)
 
     # 2. 非匿名
     @discord.ui.button(label="非匿名", style=discord.ButtonStyle.secondary, custom_id="item_post_named")
     async def post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await open_private_post_window(interaction, is_anonymous=False)
+        await start_attachment_post(interaction, is_anonymous=False)
 
     # 3. 匿名返信
     @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.success, custom_id="item_reply_anon")
     async def reply_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await open_private_post_window(interaction, is_anonymous=True, reply_target=f"#{self.post_num}")
+        await start_attachment_post(interaction, is_anonymous=True, reply_target=f"#{self.post_num}")
 
     # 4. 非匿名返信
     @discord.ui.button(label="非匿名返信", style=discord.ButtonStyle.secondary, custom_id="item_reply_named")
     async def reply_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await open_private_post_window(interaction, is_anonymous=False, reply_target=f"#{self.post_num}")
+        await start_attachment_post(interaction, is_anonymous=False, reply_target=f"#{self.post_num}")
 
     # 5. 通報
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="item_report")
@@ -215,11 +232,11 @@ class PanelView(discord.ui.View):
 
     @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="btn_post_anon")
     async def open_post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await open_private_post_window(interaction, is_anonymous=True)
+        await start_attachment_post(interaction, is_anonymous=True)
 
     @discord.ui.button(label="非匿名", style=discord.ButtonStyle.secondary, custom_id="btn_post_named")
     async def open_post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await open_private_post_window(interaction, is_anonymous=False)
+        await start_attachment_post(interaction, is_anonymous=False)
 
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="btn_report")
     async def open_report(self, interaction: discord.Interaction, button: discord.ui.Button):
