@@ -33,8 +33,8 @@ def keep_alive():
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 # ★ IDを入力 ★
-BOARD_CHANNEL_ID = 1542866592566747166  # 掲示板チャンネルID
-LOG_CHANNEL_ID = 1542991170760872057    # ログ用チャンネルID
+BOARD_CHANNEL_ID = 1542991170760872057  # 掲示板チャンネルID
+LOG_CHANNEL_ID = 1542866592566747166    # ログ用チャンネルID
 
 intents = discord.Intents.default()
 intents.message_content = True
