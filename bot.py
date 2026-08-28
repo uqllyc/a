@@ -11,6 +11,9 @@ JST = timezone(timedelta(hours=+9))
 # 投稿番号カウンター（メモリ上で管理）
 post_count = 0
 
+# 画像を一時保持する辞書 {user_id: [attachment_files]}
+user_images = {}
+
 # ==========================================
 # 1. Renderのポート監視エラー回避用Webサーバー
 # ==========================================
@@ -42,20 +45,20 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- 投稿用ポップアップ（モーダル） ---
-class PostModal(discord.ui.Modal):
+class ImagePostModal(discord.ui.Modal):
     def __init__(self, is_anonymous: bool, reply_target: str = None):
         target_str = f"（{reply_target} 宛て）" if reply_target else ""
         anon_str = "匿名" if is_anonymous else "非匿名"
-        super().__init__(title=f'{anon_str}投稿 {target_str}')
+        super().__init__(title=f'{anon_str}投稿{target_str}')
 
         self.is_anonymous = is_anonymous
         self.reply_target = reply_target
 
         self.content_input = discord.ui.TextInput(
-            label='投稿内容',
+            label='メッセージ',
             style=discord.TextStyle.paragraph,
-            placeholder='メッセージを入力してください（画像URLも可）...',
-            required=True,
+            placeholder='メッセージを入力してください（画像のみの場合は空欄でOK）...',
+            required=False,
             max_length=2000,
         )
         self.add_item(self.content_input)
@@ -70,10 +73,13 @@ class PostModal(discord.ui.Modal):
             await interaction.response.send_message("エラー: BOARD_CHANNEL_IDが設定されていません。", ephemeral=True)
             return
 
+        # 一時保存していた画像データを取得
+        files_to_send = user_images.pop(interaction.user.id, [])
+
         post_count += 1
         now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 
-        raw_text = self.content_input.value
+        raw_text = self.content_input.value if self.content_input.value else "（画像のみ）"
 
         if self.reply_target:
             body_text = f"> **{self.reply_target} への返信**\n" + raw_text
@@ -92,7 +98,10 @@ class PostModal(discord.ui.Modal):
 
         # 掲示板へ投稿送信
         post_view = PostItemView(post_num=post_count)
-        sent_msg = await board_channel.send(embed=embed, view=post_view)
+        if files_to_send:
+            sent_msg = await board_channel.send(embed=embed, files=files_to_send, view=post_view)
+        else:
+            sent_msg = await board_channel.send(embed=embed, view=post_view)
 
         # ログの記録
         if log_channel:
@@ -107,8 +116,20 @@ class PostModal(discord.ui.Modal):
             log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
             await log_channel.send(embed=log_embed)
 
-        # 送信者だけに完了メッセージを表示
-        await interaction.response.send_message("投稿が完了しました。", ephemeral=True)
+        await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
+
+# --- 画像投稿時の形式選択ボタン（DM内） ---
+class ImageChoiceView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+
+    @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary)
+    async def post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=True))
+
+    @discord.ui.button(label="非匿名", style=discord.ButtonStyle.secondary)
+    async def post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=False))
 
 # --- 通報用モーダル ---
 class ReportModal(discord.ui.Modal):
@@ -145,33 +166,36 @@ class ReportModal(discord.ui.Modal):
 
 # ==========================================
 # 各投稿メッセージの下につくボタン一覧（指定順）
+# 順序: 匿名 ➔ 非匿名 ➔ 画像 ➔ 匿名返信 ➔ 非匿名返信 ➔ 通報
 # ==========================================
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
         super().__init__(timeout=None)
         self.post_num = post_num
 
-    # 1. 匿名
     @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="item_post_anon")
     async def post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PostModal(is_anonymous=True))
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=True))
 
-    # 2. 非匿名
     @discord.ui.button(label="非匿名", style=discord.ButtonStyle.secondary, custom_id="item_post_named")
     async def post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PostModal(is_anonymous=False))
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=False))
 
-    # 3. 匿名返信
-    @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.success, custom_id="item_reply_anon")
+    @discord.ui.button(label="画像", style=discord.ButtonStyle.success, custom_id="item_post_image")
+    async def post_image(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "📷 **画像投稿の手順**\nこのチャンネル（掲示板）に画像を直接送信してください。\n送信すると自動で回収され、匿名/非匿名を選択して投稿できます。",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.primary, custom_id="item_reply_anon")
     async def reply_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PostModal(is_anonymous=True, reply_target=f"#{self.post_num}"))
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=True, reply_target=f"#{self.post_num}"))
 
-    # 4. 非匿名返信
     @discord.ui.button(label="非匿名返信", style=discord.ButtonStyle.secondary, custom_id="item_reply_named")
     async def reply_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PostModal(is_anonymous=False, reply_target=f"#{self.post_num}"))
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=False, reply_target=f"#{self.post_num}"))
 
-    # 5. 通報
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="item_report")
     async def report_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReportModal(target_post=f"#{self.post_num}"))
@@ -183,24 +207,56 @@ class PanelView(discord.ui.View):
 
     @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="btn_post_anon")
     async def open_post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PostModal(is_anonymous=True))
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=True))
 
     @discord.ui.button(label="非匿名", style=discord.ButtonStyle.secondary, custom_id="btn_post_named")
     async def open_post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PostModal(is_anonymous=False))
+        await interaction.response.send_modal(ImagePostModal(is_anonymous=False))
+
+    @discord.ui.button(label="画像", style=discord.ButtonStyle.success, custom_id="btn_post_image")
+    async def open_post_image(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "📷 **画像投稿の手順**\nこのチャンネル（掲示板）に画像を直接送信してください。\n送信すると自動で回収され、匿名/非匿名を選択して投稿できます。",
+            ephemeral=True
+        )
 
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="btn_report")
     async def open_report(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReportModal())
 
-# --- 誤送信防止のためのメッセージ監視 ---
+# --- 画像付きメッセージの検知 ＆ 誤送信削除 ---
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # 掲示板チャンネルに直接書き込まれたメッセージは即削除
     if message.channel.id == BOARD_CHANNEL_ID:
+        # 画像が添付されている場合
+        if message.attachments:
+            files = []
+            for attachment in message.attachments:
+                file_data = await attachment.to_file()
+                files.append(file_data)
+            
+            user_images[message.author.id] = files
+
+            # 直投げされた画像メッセージを削除
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            # DMで選択メニューを送付
+            try:
+                await message.author.send(
+                    content="🖼️ **画像を受け取りました！**\n「匿名」または「非匿名」を選択し、メッセージを入力してください。",
+                    view=ImageChoiceView()
+                )
+            except discord.Forbidden:
+                pass
+            return
+
+        # 画像がない直接メッセージは即削除
         try:
             await message.delete()
         except Exception:
@@ -225,9 +281,9 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="**匿名**: 名前を隠して投稿\n"
-                    "**非匿名**: ユーザー名を表示して投稿\n"
-                    "**通報**: 違反投稿を通知",
+        description="**匿名 / 非匿名**: テキストのみを投稿します。\n"
+                    "**画像**: 画像付き投稿の手順を表示します。\n"
+                    "**通報**: 違反投稿を管理者へ報告します。",
         color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
