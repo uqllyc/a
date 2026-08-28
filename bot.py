@@ -9,12 +9,17 @@ from discord.ext import commands
 from flask import Flask, jsonify, render_template, request
 
 # --------------------------------------------------
-# 【設定】IDとトークン・環境変数
+# 【設定】IDとトークン
 # --------------------------------------------------
-BOARD_CHANNEL_ID = 1542868096640098444  # 掲示板チャンネルのID
-LOG_CHANNEL_ID = 1542866592566747166  # 管理者用ログチャンネル
+BOARD_CHANNEL_ID = 1542868096640098444  # 掲示板チャンネルID
+LOG_CHANNEL_ID = 1542866592566747166  # 管理者用ログチャンネルID
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
+# RenderのWebサイトURL（末尾にスラッシュは不要）
+WEB_URL = os.environ.get(
+    "RENDER_EXTERNAL_URL", "https://a-ai9n.onrender.com"
+)
 DATA_FILE = "post_count.json"
+
 
 # --------------------------------------------------
 # 投稿番号の保存・読み込み
@@ -56,11 +61,20 @@ class AnonymousBoardBot(commands.Bot):
 bot = AnonymousBoardBot()
 
 
-# 投稿カード下部の通報ボタン
+# 各投稿の表下に付くボタン（投稿フォームを開くボタン ＆ 通報ボタン）
 class PostButtonsView(discord.ui.View):
 
   def __init__(self):
     super().__init__(timeout=None)
+    # WEB_URL へのリンクボタンを追加（を押すとフォームが開く）
+    self.add_item(
+        discord.ui.Button(
+            label="投稿",
+            style=discord.ButtonStyle.link,
+            url=WEB_URL,
+            emoji="✉️",
+        )
+    )
 
   @discord.ui.button(
       label="通報",
@@ -104,26 +118,23 @@ class PostButtonsView(discord.ui.View):
     )
 
 
-# コマンド: 掲示板に投稿ボタンを設置するパネル
+# 最初にパネルを設置するコマンド
 @bot.tree.command(
-    name="setup_panel", description="掲示板に投稿ボタンを設置します"
+    name="setup_panel", description="掲示板に投稿ボタンパネルを設置します"
 )
 async def setup_panel(interaction: discord.Interaction):
   embed = discord.Embed(
       title="📝 匿名掲示板",
-      description="下のボタンを押すと専用の投稿フォームが開きます。\n画像や動画も直接アップロードできます！",
+      description="下の「投稿」ボタンを押すとフォームが開きます。\n画像や動画も直接アップロードできます！",
       color=0x5865F2,
   )
-  # RenderのホストURL（または環境変数）から投稿ページURLを生成
-  host_url = request.host_url if request else "https://"
   view = discord.ui.View()
-  # フォームへの直接リンクボタン
-  render_url = os.environ.get("RENDER_EXTERNAL_URL", "https://your-app-name.onrender.com")
   view.add_item(
       discord.ui.Button(
-          label="投稿する（フォームを開く）",
-          url=render_url,
+          label="投稿",
           style=discord.ButtonStyle.link,
+          url=WEB_URL,
+          emoji="✉️",
       )
   )
   await interaction.channel.send(embed=embed, view=view)
@@ -138,13 +149,11 @@ async def setup_panel(interaction: discord.Interaction):
 app = Flask(__name__)
 
 
-# 投稿フォーム画面（HTML）を表示
 @app.route("/")
 def index():
   return render_template("index.html")
 
 
-# フォームからの送信データを受け取りDiscordへ投稿
 @app.route("/submit", methods=["POST"])
 def submit():
   global current_post_id
@@ -155,13 +164,17 @@ def submit():
   file = request.files.get("file")
 
   if not content and not file:
-    return jsonify({"success": False, "message": "テキストかファイルを入力してください。"}), 400
+    return (
+        jsonify(
+            {"success": False, "message": "テキストかファイルを入力してください。"}
+        ),
+        400,
+    )
 
   current_post_id += 1
   post_id = current_post_id
   save_post_id(post_id)
 
-  # Bot経由でDiscordへ送信する処理を非同期実行
   async def send_to_discord():
     board_channel = bot.get_channel(BOARD_CHANNEL_ID)
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
@@ -169,13 +182,12 @@ def submit():
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     author_name = "匿名" if anonymous else "投稿者"
 
-    # 引用メッセージの設定
     description = content
     if ref_id:
-      description = f"**>> No.{ref_id}**\n" + description
+      description = f">> {ref_id}\n" + description
 
     embed = discord.Embed(description=description, color=0x2B2D31)
-    embed.set_author(name=f"{post_id} : {author_name} • {now_str}")
+    embed.set_author(name=f"{post_id} : {author_name}")
 
     discord_file = None
     if file:
@@ -183,7 +195,6 @@ def submit():
       discord_file = discord.File(
           io.BytesIO(file_bytes), filename=file.filename
       )
-
       if file.content_type and file.content_type.startswith("image/"):
         embed.set_image(url=f"attachment://{file.filename}")
 
@@ -197,7 +208,7 @@ def submit():
 
     if log_channel:
       log_embed = discord.Embed(
-          title=f"【Web投稿ログ】No.{post_id}",
+          title=f"【投稿ログ】No.{post_id}",
           color=0x2B2D31,
           timestamp=datetime.datetime.now(),
       )
@@ -224,7 +235,6 @@ def run_flask():
   app.run(host="0.0.0.0", port=port)
 
 
-# BotとFlaskの同時起動
 if __name__ == "__main__":
   t = Thread(target=run_flask)
   t.start()
