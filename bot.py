@@ -44,7 +44,7 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 案内メッセージ送信関数（自然な人間っぽい文章） ---
+# --- 案内メッセージ送信関数 ---
 async def start_attachment_post(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
     waiting_users[interaction.user.id] = {
         "is_anonymous": is_anonymous,
@@ -53,11 +53,11 @@ async def start_attachment_post(interaction: discord.Interaction, is_anonymous: 
     }
     
     target_str = f"（{reply_target} 宛て）" if reply_target else ""
-    type_str = "匿名" if is_anonymous else "名前表示"
+    type_str = "匿名" if is_anonymous else "非匿名"
     
     msg = (
-        f"📷 **{type_str}で投稿するよ {target_str}**\n\n"
-        f"下の＋から投稿してください。\n"
+        f"**{type_str}で投稿するよ {target_str}**\n\n"
+        f"メッセージや画像をこのチャンネルに入力・送信してください。\n"
         f"*(送信したら元メッセージは自動で消えて掲示板に載ります)*"
     )
     
@@ -106,7 +106,7 @@ async def on_message(message: discord.Message):
             is_anon = user_config["is_anonymous"]
             author_name = "匿名" if is_anon else message.author.display_name
 
-            embed = discord.Embed(description=body_text, color=0x2b2d31)
+            embed = discord.Embed(description=body_text, color=0x000000)
             header_text = f"#{post_count} | {author_name} | {now_jst}"
 
             if is_anon:
@@ -126,10 +126,10 @@ async def on_message(message: discord.Message):
                 log_embed = discord.Embed(
                     title=f"【投稿ログ #{post_count}】",
                     description=body_text,
-                    color=0x3498db
+                    color=0x2b2d31
                 )
                 log_embed.add_field(name="投稿者", value=f"{message.author.mention} ({message.author.id})")
-                log_embed.add_field(name="表示タイプ", value="匿名" if is_anon else "名前表示")
+                log_embed.add_field(name="表示タイプ", value="匿名" if is_anon else "非匿名")
                 log_embed.add_field(name="投稿時間", value=now_jst)
                 log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
                 await log_channel.send(embed=log_embed)
@@ -169,28 +169,35 @@ class ReportModal(discord.ui.Modal):
         await log_channel.send(embed=report_embed)
         await interaction.response.send_message("通報を送信しました。", ephemeral=True)
 
-# --- 各投稿メッセージの下につくボタン一覧 ---
+# ==========================================
+# 各投稿メッセージの下につくボタン一覧（指定順）
+# ==========================================
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
         super().__init__(timeout=None)
         self.post_num = post_num
 
-    @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.primary, custom_id="item_reply_anon")
-    async def reply_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await start_attachment_post(interaction, is_anonymous=True, reply_target=f"#{self.post_num}")
-
-    @discord.ui.button(label="名前返信", style=discord.ButtonStyle.secondary, custom_id="item_reply_named")
-    async def reply_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await start_attachment_post(interaction, is_anonymous=False, reply_target=f"#{self.post_num}")
-
-    @discord.ui.button(label="匿名投稿", style=discord.ButtonStyle.success, custom_id="item_post_anon")
+    # 1. 匿名
+    @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="item_post_anon")
     async def post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         await start_attachment_post(interaction, is_anonymous=True)
 
-    @discord.ui.button(label="名前投稿", style=discord.ButtonStyle.secondary, custom_id="item_post_named")
+    # 2. 非匿名
+    @discord.ui.button(label="非匿名", style=discord.ButtonStyle.secondary, custom_id="item_post_named")
     async def post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await start_attachment_post(interaction, is_anonymous=False)
 
+    # 3. 匿名返信
+    @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.success, custom_id="item_reply_anon")
+    async def reply_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await start_attachment_post(interaction, is_anonymous=True, reply_target=f"#{self.post_num}")
+
+    # 4. 非匿名返信
+    @discord.ui.button(label="非匿名返信", style=discord.ButtonStyle.secondary, custom_id="item_reply_named")
+    async def reply_named(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await start_attachment_post(interaction, is_anonymous=False, reply_target=f"#{self.post_num}")
+
+    # 5. 通報
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="item_report")
     async def report_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReportModal(target_post=f"#{self.post_num}"))
@@ -200,15 +207,15 @@ class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="匿名で投稿", style=discord.ButtonStyle.primary, custom_id="btn_post_anon")
+    @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="btn_post_anon")
     async def open_post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         await start_attachment_post(interaction, is_anonymous=True)
 
-    @discord.ui.button(label="名前表示で投稿", style=discord.ButtonStyle.secondary, custom_id="btn_post_named")
+    @discord.ui.button(label="非匿名", style=discord.ButtonStyle.secondary, custom_id="btn_post_named")
     async def open_post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await start_attachment_post(interaction, is_anonymous=False)
 
-    @discord.ui.button(label="通報する", style=discord.ButtonStyle.danger, custom_id="btn_report")
+    @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="btn_report")
     async def open_report(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReportModal())
 
@@ -229,10 +236,10 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="🔹 **匿名投稿**: 名前を隠して投稿\n"
-                    "⚙️ **名前投稿**: ユーザー名を表示して投稿\n"
+        description="🔹 **匿名**: 名前を隠して投稿\n"
+                    "⚙️ **非匿名**: ユーザー名を表示して投稿\n"
                     "🚨 **通報**: 違反投稿を通知",
-        color=0x3498db
+        color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
     await interaction.response.send_message("パネルを設置しました。", ephemeral=True)
