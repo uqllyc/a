@@ -1,8 +1,15 @@
 import os
 import threading
+from datetime import datetime, timezone, timedelta
 from flask import Flask
 import discord
 from discord.ext import commands
+
+# JST（日本時間）の定義
+JST = timezone(timedelta(hours=+9))
+
+# 投稿番号カウンター（メモリ上で管理）
+post_count = 0
 
 # ==========================================
 # 1. Renderのポート監視エラー（No open ports）回避用Webサーバー
@@ -34,16 +41,15 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 投稿用モーダル（匿名・記名共通） ---
+# --- 投稿用モーダル ---
 class PostModal(discord.ui.Modal):
     def __init__(self, is_anonymous: bool):
         self.is_anonymous = is_anonymous
-        # モーダルのタイトルを動的に変更
         title_text = '📝 投稿フォーム（匿名）' if is_anonymous else '📝 投稿フォーム（公開名）'
         super().__init__(title=title_text)
 
         self.content = discord.ui.TextInput(
-            label='投稿内容',
+            label='メッセージ',
             style=discord.TextStyle.paragraph,
             placeholder='ここにメッセージを入力してください...',
             required=True,
@@ -52,6 +58,9 @@ class PostModal(discord.ui.Modal):
         self.add_item(self.content)
 
     async def on_submit(self, interaction: discord.Interaction):
+        global post_count
+        post_count += 1
+
         board_channel = bot.get_channel(BOARD_CHANNEL_ID)
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
@@ -62,16 +71,26 @@ class PostModal(discord.ui.Modal):
             )
             return
 
-        # 掲示板用 Embed
+        # 日時を取得（日本時間）
+        now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+        
+        # 投稿者名設定
+        author_name = "匿名" if self.is_anonymous else interaction.user.display_name
+        
+        # 埋め込みメッセージ（Embed）を作成
         embed = discord.Embed(
             description=self.content.value,
             color=0x2b2d31
         )
+        
+        # ヘッダー指定: 投稿数 ➔ 匿名/名前 ➔ 時間
+        header_text = f"#{post_count} | {author_name} | {now_jst}"
+
         if self.is_anonymous:
-            embed.set_author(name="匿名ユーザー")
+            embed.set_author(name=header_text)
         else:
             embed.set_author(
-                name=interaction.user.display_name, 
+                name=header_text,
                 icon_url=interaction.user.display_avatar.url
             )
 
@@ -80,12 +99,13 @@ class PostModal(discord.ui.Modal):
         # 管理者ログ用 Embed
         if log_channel:
             log_embed = discord.Embed(
-                title="【投稿ログ】",
+                title=f"【投稿ログ #{post_count}】",
                 description=self.content.value,
                 color=0x3498db
             )
             log_embed.add_field(name="投稿者", value=f"{interaction.user.mention} ({interaction.user.id})")
-            log_embed.add_field(name="匿名設定", value="有効（匿名）" if self.is_anonymous else "無効（公開）")
+            log_embed.add_field(name="表示タイプ", value="匿名" if self.is_anonymous else "名前表示")
+            log_embed.add_field(name="投稿時間", value=now_jst)
             log_embed.add_field(name="対象メッセージ", value=sent_message.jump_url)
             await log_channel.send(embed=log_embed)
 
@@ -97,7 +117,7 @@ class ReportModal(discord.ui.Modal, title='🚨 管理者への通報フォー�
     report_reason = discord.ui.TextInput(
         label='通報内容・理由',
         style=discord.TextStyle.paragraph,
-        placeholder='違反投稿のURLや不適切な内容、理由などを入力してください...',
+        placeholder='違反投稿の番号(#1など)や理由を入力してください...',
         required=True,
         max_length=1000,
     )
@@ -112,16 +132,17 @@ class ReportModal(discord.ui.Modal, title='🚨 管理者への通報フォー�
             )
             return
 
+        now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
         report_embed = discord.Embed(
             title="🚨【通報が届きました】",
             description=self.report_reason.value,
             color=0xff0000
         )
         report_embed.add_field(name="通報者", value=f"{interaction.user.mention} ({interaction.user.id})")
-        report_embed.add_field(name="通報日時", value=discord.utils.format_dt(interaction.created_at, style='F'))
+        report_embed.add_field(name="通報日時", value=now_jst)
         
         await log_channel.send(embed=report_embed)
-        await interaction.response.send_message("通報を管理者に送信しました。ご協力ありがとうございます。", ephemeral=True)
+        await interaction.response.send_message("通報を管理者に送信しました。", ephemeral=True)
 
 
 # --- 設置パネルのボタン設定 ---
@@ -129,17 +150,14 @@ class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # 1. 匿名投稿ボタン
     @discord.ui.button(label="匿名で投稿", style=discord.ButtonStyle.primary, custom_id="btn_post_anon")
     async def open_post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PostModal(is_anonymous=True))
 
-    # 2. 記名（名前表示）投稿ボタン
     @discord.ui.button(label="名前表示で投稿", style=discord.ButtonStyle.secondary, custom_id="btn_post_named")
     async def open_post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(PostModal(is_anonymous=False))
 
-    # 3. 通報ボタン
     @discord.ui.button(label="通報する", style=discord.ButtonStyle.danger, custom_id="btn_report")
     async def open_report(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReportModal())
@@ -162,10 +180,10 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板パネル",
-        description="**匿名。**\n\n"
-                    "🔹 **匿名**: 名前を隠して投稿\n"
-                    "⚙️ **非匿名**: Discord名を表示して投稿\n"
-                    "🚨 **通報する**: 違反内容を管理者に通知",
+        description="用途に合わせて下のボタンを押して投稿してください。\n\n"
+                    "🔹 **匿名で投稿**: 名前を隠して投稿します\n"
+                    "⚙️ **名前表示で投稿**: ユーザー名を表示して投稿します\n"
+                    "🚨 **通報する**: 違反内容を管理者に通知します",
         color=0x3498db
     )
     await interaction.channel.send(embed=embed, view=PanelView())
