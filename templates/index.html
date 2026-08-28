@@ -6,38 +6,41 @@
   <title>投稿</title>
   <style>
     * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background-color: #0f0f0f; color: #f1f1f1; margin: 0; padding: 20px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 480px; background: #181818; padding: 20px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-    .warning { background: #2a2100; color: #ffcc00; padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; }
-    .form-group { margin-bottom: 18px; }
-    label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
-    input[type="text"], textarea { width: 100%; background: #252525; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 8px; font-size: 14px; }
-    textarea { height: 100px; resize: none; }
-    .radio-group { background: #252525; padding: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 10px; }
-    .radio-label { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 14px; cursor: pointer; }
-    .file-upload { background: #252525; border: 1px dashed #444; padding: 16px; border-radius: 8px; text-align: center; cursor: pointer; position: relative; }
+    body { background-color: #000000; color: #ffffff; margin: 0; padding: 16px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 480px; background: #000000; padding: 0px; }
+    .warning { background: #2a2100; color: #ffcc00; padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; line-height: 1.4; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-size: 13px; color: #888888; margin-bottom: 8px; }
+    input[type="text"], textarea { width: 100%; background: #111111; border: 1px solid #222222; color: #ffffff; padding: 14px; border-radius: 12px; font-size: 15px; outline: none; }
+    textarea { height: 120px; resize: none; }
+    input[type="text"]:focus, textarea:focus { border-color: #5865F2; }
+    .radio-group { background: #111111; padding: 6px 14px; border-radius: 12px; border: 1px solid #222222; }
+    .radio-label { display: flex; justify-content: space-between; align-items: center; color: #ffffff; font-size: 15px; padding: 10px 0; cursor: pointer; border-bottom: 1px solid #222222; }
+    .radio-label:last-child { border-bottom: none; }
+    .file-upload { background: #111111; border: 1px solid #222222; padding: 16px; border-radius: 12px; text-align: left; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: space-between; }
     .file-upload input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-    .btn-submit { width: 100%; background: #5865F2; color: #fff; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-    .btn-submit:disabled { background: #444; }
-    #status { margin-top: 12px; text-align: center; font-size: 14px; }
+    .btn-submit { width: 100%; background: #5865F2; color: #ffffff; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    .btn-submit:disabled { background: #333333; color: #777777; }
+    #status { margin-top: 14px; text-align: center; font-size: 14px; }
   </style>
 </head>
 <body>
 
 <div class="container">
   <div class="warning">
-    ⚠️ このフォームの内容は管理者に送られます。パスワードや個人情報は送信しないでください。
+    ⚠️ このフォームの内容は..に送られます。パスワードやその他の個人情報を送らないでください。
   </div>
 
   <form id="postForm" enctype="multipart/form-data">
     <div class="form-group">
-      <label>本文 (任意)</label>
+      <label>投稿</label>
       <textarea name="content" placeholder="本文（任意・画像・動画のみの投稿も可）"></textarea>
     </div>
 
     <div class="form-group">
-      <label>引用する投稿番号 (任意)</label>
-      <input type="text" name="ref_id" placeholder="例: 12">
+      <label>レス</label>
+      <input type="text" name="ref_id" placeholder="例: 99 / n99">
+      <div style="font-size:12px; color:#666; margin-top:4px;">引用する投稿番号（任意）</div>
     </div>
 
     <div class="form-group">
@@ -57,7 +60,7 @@
     <div class="form-group">
       <label>画像・動画</label>
       <div class="file-upload">
-        <span id="fileName">📁 ファイルをアップロード (20MB未満)</span>
+        <span id="fileName">ファイルをアップロード<br><small style="color:#666;">1個のファイル（20MB未満）をアップロードできます。</small></span>
         <input type="file" name="file" id="fileInput" accept="image/*,video/*">
       </div>
     </div>
@@ -77,9 +80,9 @@
 
   fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-      fileName.textContent = '📎 ' + e.target.files[0].name;
+      fileName.innerHTML = '📎 ' + e.target.files[0].name;
     } else {
-      fileName.textContent = '📁 ファイルをアップロード (20MB未満)';
+      fileName.innerHTML = 'ファイルをアップロード<br><small style="color:#666;">1個のファイル（20MB未満）をアップロードできます。</small>';
     }
   });
 
@@ -101,7 +104,7 @@
         status.style.color = '#57F287';
         status.textContent = result.message;
         form.reset();
-        fileName.textContent = '📁 ファイルをアップロード (20MB未満)';
+        fileName.innerHTML = 'ファイルをアップロード<br><small style="color:#666;">1個のファイル（20MB未満）をアップロードできます。</small>';
       } else {
         status.style.color = '#ED4245';
         status.textContent = result.message || 'エラーが発生しました。';
