@@ -498,11 +498,11 @@ async def setup_panel(interaction: discord.Interaction):
 
         title="📝 掲示板",
 
-        description="🔹 **匿名**: 名前を隠して投稿\n"
+        description=" **匿名**: 名前を隠して投稿\n"
 
-                    "⚙️ **非匿名**: ユーザー名を表示して投稿\n"
+                    " **非匿名**: ユーザー名を表示して投稿\n"
 
-                    "🚨 **通報**: 違反投稿を通知",
+                    " **通報**: 違反投稿を通知",
 
         color=0x000000
 
