@@ -1,10 +1,13 @@
 import os
+import io
+import asyncio
 import threading
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, render_template_string
 import discord
 from discord.ext import commands
 
+# JST（日本時間）の定義
 JST = timezone(timedelta(hours=+9))
 post_count = 0
 
@@ -142,8 +145,6 @@ def upload_page():
 
 @app.route('/submit', methods=['POST'])
 def submit_post():
-    global post_count
-    
     is_anon = request.form.get('is_anon') == 'True'
     reply_target = request.form.get('reply_target')
     user_id = request.form.get('user_id')
@@ -152,21 +153,31 @@ def submit_post():
     content = request.form.get('content')
     
     image_file = request.files.get('image')
+    image_bytes = None
+    filename = None
 
-    # 非同期処理をDiscord Botのイベントループで実行
-    bot.loop.create_task(process_web_post(
-        is_anon=is_anon,
-        reply_target=reply_target,
-        user_id=user_id,
-        user_name=user_name,
-        avatar_url=avatar_url,
-        content=content,
-        image_file=image_file
-    ))
+    if image_file and image_file.filename != '':
+        image_bytes = image_file.read()
+        filename = image_file.filename
+
+    # スレッドセーフにBotへ処理を投げる
+    asyncio.run_coroutine_threadsafe(
+        process_web_post(
+            is_anon=is_anon,
+            reply_target=reply_target,
+            user_id=user_id,
+            user_name=user_name,
+            avatar_url=avatar_url,
+            content=content,
+            image_bytes=image_bytes,
+            filename=filename
+        ),
+        bot.loop
+    )
 
     return render_template_string(HTML_SUCCESS)
 
-async def process_web_post(is_anon, reply_target, user_id, user_name, avatar_url, content, image_file):
+async def process_web_post(is_anon, reply_target, user_id, user_name, avatar_url, content, image_bytes, filename):
     global post_count
     post_count += 1
 
@@ -174,6 +185,7 @@ async def process_web_post(is_anon, reply_target, user_id, user_name, avatar_url
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
     if not board_channel:
+        print("エラー: BOARD_CHANNEL_ID が不正です")
         return
 
     now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
@@ -191,32 +203,33 @@ async def process_web_post(is_anon, reply_target, user_id, user_name, avatar_url
     else:
         embed.set_author(name=header_text, icon_url=avatar_url)
 
-    # 添付画像の処理
+    # 添付ファイルの作成
     file_to_send = None
-    if image_file and image_file.filename != '':
-        file_bytes = image_file.read()
-        file_to_send = discord.File(fp=io.BytesIO(file_bytes), filename=image_file.filename)
+    if image_bytes and filename:
+        file_to_send = discord.File(fp=io.BytesIO(image_bytes), filename=filename)
 
     post_view = PostItemView(post_num=post_count)
-    if file_to_send:
-        sent_msg = await board_channel.send(embed=embed, file=file_to_send, view=post_view)
-    else:
-        sent_msg = await board_channel.send(embed=embed, view=post_view)
+    
+    try:
+        if file_to_send:
+            sent_msg = await board_channel.send(embed=embed, file=file_to_send, view=post_view)
+        else:
+            sent_msg = await board_channel.send(embed=embed, view=post_view)
 
-    # ログ出力
-    if log_channel:
-        log_embed = discord.Embed(
-            title=f"【投稿ログ #{post_count}】",
-            description=body_text,
-            color=0x3498db
-        )
-        log_embed.add_field(name="投稿者", value=f"<@{user_id}> ({user_id})")
-        log_embed.add_field(name="表示タイプ", value="匿名" if is_anon else "名前表示")
-        log_embed.add_field(name="投稿時間", value=now_jst)
-        log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
-        await log_channel.send(embed=log_embed)
-
-import io
+        # ログ送信
+        if log_channel:
+            log_embed = discord.Embed(
+                title=f"【投稿ログ #{post_count}】",
+                description=body_text,
+                color=0x3498db
+            )
+            log_embed.add_field(name="投稿者", value=f"<@{user_id}> ({user_id})")
+            log_embed.add_field(name="表示タイプ", value="匿名" if is_anon else "名前表示")
+            log_embed.add_field(name="投稿時間", value=now_jst)
+            log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
+            await log_channel.send(embed=log_embed)
+    except Exception as e:
+        print(f"投稿送信時エラー: {e}")
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -231,9 +244,12 @@ def keep_alive():
 # 3. Discord Bot UI & イベント
 # ==========================================
 async def send_upload_link(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
-    # Renderのホスト名または環境変数からURLを取得
-    render_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:10000")
-    
+    # Renderのホスト名取得（設定がない場合は自動生成）
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not render_url:
+        # ディスコードのホストから動的に取るかデフォルト
+        render_url = "https://" + os.environ.get("RENDER_SERVICE_NAME", "app") + ".onrender.com"
+
     target_param = reply_target if reply_target else ""
     link = (
         f"{render_url}/upload?"
