@@ -11,7 +11,7 @@ from discord.ext import commands
 # --------------------------------------------------
 BOARD_CHANNEL_ID = 1542868096640098444  # 掲示板チャンネルのID（数字）
 LOG_CHANNEL_ID = 1542866592566747166  # 管理者用ログチャンネル（通報もここに届きます）
-BOT_TOKEN = "MTU0Mjg2NDUyNzQxMzA4NDI1MA.GEKX-f.YdddEF9lXntj7Z4UoqVnaHhIPvIa0XX7scDjXs"  # Botのトークン
+BOT_TOKEN = "MTU0Mjg2NDUyNzQxMzA4NDI1MA.Gzvd_5.Yjd7bOd9B8ELyMWAJFlD3-jFpKncuE0ruJmPtc"  # Botのトークン
 
 DATA_FILE = "post_count.json"  # 投稿番号の保存用ファイル
 
