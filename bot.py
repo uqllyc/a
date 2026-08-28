@@ -1,238 +1,127 @@
-import datetime
-import io
-import json
 import os
-from threading import Thread
 import discord
-from discord import app_commands
 from discord.ext import commands
-from flask import Flask, jsonify, render_template, request
+from discord import app_commands
 
-# --------------------------------------------------
-# 設定とファイル制御
-# --------------------------------------------------
-BOARD_CHANNEL_ID = 1542868096640098444
-LOG_CHANNEL_ID = 1542866592566747166
-BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
-WEB_URL = os.environ.get(
-    "RENDER_EXTERNAL_URL", "https://a-ai9n.onrender.com"
-)
-DATA_FILE = "post_count.json"
+# --- 環境変数の読み込み ---
+TOKEN = os.environ.get("DISCORD_TOKEN")
 
+# チャンネルIDの読み込み（環境変数がなければ0を設定）
+BOARD_CHANNEL_ID = int(os.environ.get("BOARD_CHANNEL_ID", "0"))
+LOG_CHANNEL_ID = int(os.environ.get("LOG_CHANNEL_ID", "0"))
 
-def load_post_id():
-  if os.path.exists(DATA_FILE):
-    try:
-      with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f).get("current_post_id", 0)
-    except Exception:
-      return 0
-  return 0
-
-
-def save_post_id(post_id):
-  with open(DATA_FILE, "w", encoding="utf-8") as f:
-    json.dump({"current_post_id": post_id}, f)
-
-
-current_post_id = load_post_id()
-
-# --------------------------------------------------
-# Discord Bot
-# --------------------------------------------------
+# Botの準備
 intents = discord.Intents.default()
 intents.message_content = True
 
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-class AnonymousBoardBot(commands.Bot):
+# --- 投稿入力用フォーム（モーダル） ---
+class PostModal(discord.ui.Modal, title='匿名掲示板 投稿フォーム'):
+    # 本文入力エリア
+    content = discord.ui.TextInput(
+        label='投稿内容',
+        style=discord.TextStyle.paragraph,
+        placeholder='ここにメッセージを入力してください...',
+        required=True,
+        max_length=1000,
+    )
+    
+    # 匿名設定エリア
+    is_anonymous = discord.ui.TextInput(
+        label='匿名で投稿しますか？（「はい」または「いいえ」）',
+        style=discord.TextStyle.short,
+        placeholder='はい',
+        default='はい',
+        required=False,
+        max_length=3
+    )
 
-  def __init__(self):
-    super().__init__(command_prefix="!", intents=intents)
+    async def on_submit(self, interaction: discord.Interaction):
+        # 送信先チャンネルを取得
+        board_channel = bot.get_channel(BOARD_CHANNEL_ID)
+        log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
-  async def setup_hook(self):
-    self.add_view(PostButtonsView())
-    await self.tree.sync()
+        if not board_channel:
+            await interaction.response.send_message(
+                "エラー: 投稿先のチャンネルが見つかりません。BOARD_CHANNEL_IDを確認してください。", 
+                ephemeral=True
+            )
+            return
 
+        # 匿名判定
+        anon_text = self.is_anonymous.value.strip()
+        use_anon = anon_text in ["はい", "yes", "Y", "1", ""]
 
-bot = AnonymousBoardBot()
-
-
-class PostButtonsView(discord.ui.View):
-
-  def __init__(self):
-    super().__init__(timeout=None)
-    # 1タップで直接開くリンクボタン
-    self.add_item(
-        discord.ui.Button(
-            label="投稿",
-            style=discord.ButtonStyle.link,
-            url=WEB_URL,
-            emoji="✉️",
+        # --- 掲示板へ送る埋め込みメッセージ（Embed） ---
+        embed = discord.Embed(
+            description=self.content.value,
+            color=0x2b2d31
         )
-    )
+        if use_anon:
+            embed.set_author(name="匿名ユーザー")
+        else:
+            embed.set_author(
+                name=interaction.user.display_name, 
+                icon_url=interaction.user.display_avatar.url
+            )
 
-  @discord.ui.button(
-      label="通報",
-      style=discord.ButtonStyle.danger,
-      custom_id="report_button_persistent",
-  )
-  async def report_button(
-      self, interaction: discord.Interaction, button: discord.ui.Button
-  ):
-    log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-    message = interaction.message
-    post_title = (
-        message.embeds[0].author.name if message.embeds else "不明な投稿"
-    )
-    post_content = (
-        message.embeds[0].description if message.embeds else "内容なし"
-    )
+        # メッセージ送信
+        sent_message = await board_channel.send(embed=embed)
 
-    if log_channel:
-      report_embed = discord.Embed(
-          title="🚨 通報通知", color=0xED4245, timestamp=datetime.datetime.now()
-      )
-      report_embed.add_field(
-          name="通報者",
-          value=f"{interaction.user.mention} ({interaction.user.name})",
-          inline=False,
-      )
-      report_embed.add_field(
-          name="対象投稿", value=post_title, inline=False
-      )
-      report_embed.add_field(
-          name="投稿内容", value=post_content, inline=False
-      )
-      report_embed.add_field(
-          name="投稿URL", value=message.jump_url, inline=False
-      )
-      await log_channel.send(embed=report_embed)
+        # --- 管理者ログ用チャンネルへの送信 ---
+        if log_channel:
+            log_embed = discord.Embed(
+                title="【投稿ログ】",
+                description=self.content.value,
+                color=0xff0000
+            )
+            log_embed.add_field(name="投稿者", value=f"{interaction.user.mention} ({interaction.user.id})")
+            log_embed.add_field(name="匿名設定", value="有効" if use_anon else "無効")
+            log_embed.add_field(name="対象メッセージ", value=sent_message.jump_url)
+            await log_channel.send(embed=log_embed)
 
-    await interaction.response.send_message(
-        "通報を受け付けました。", ephemeral=True
-    )
+        # 送信者にだけ見える完了通知
+        await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
 
+# --- 投稿パネルの「投稿する」ボタン ---
+class PanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # 再起動後もボタンを有効化
 
-@bot.tree.command(
-    name="setup_panel", description="掲示板に投稿ボタンパネルを設置します"
-)
+    @discord.ui.button(label="投稿する", style=discord.ButtonStyle.primary, custom_id="open_post_modal_btn")
+    async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # ボタンを押すと画面を移動せずDiscord内でフォームが開く
+        await interaction.response.send_modal(PostModal())
+
+# --- Bot起動イベント ---
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user.name}')
+    # 常時ボタンが反応するようにViewを登録
+    bot.add_view(PanelView())
+    
+    # スラッシュコマンドを同期
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+
+# --- パネル設置コマンド ---
+@bot.tree.command(name="setup_panel", description="掲示板の投稿パネルを設置します")
 async def setup_panel(interaction: discord.Interaction):
-  embed = discord.Embed(
-      title="📝 匿名掲示板",
-      description="下の「投稿」ボタンを押すと入力画面が開きます。\n画像や動画も一緒にアップロードできます！",
-      color=0x5865F2,
-  )
-  view = discord.ui.View()
-  view.add_item(
-      discord.ui.Button(
-          label="投稿",
-          style=discord.ButtonStyle.link,
-          url=WEB_URL,
-          emoji="✉️",
-      )
-  )
-  await interaction.channel.send(embed=embed, view=view)
-  await interaction.response.send_message(
-      "パネルを設置しました。", ephemeral=True
-  )
-
-
-# --------------------------------------------------
-# Web Server
-# --------------------------------------------------
-app = Flask(__name__)
-
-
-@app.route("/")
-def index():
-  return render_template("index.html")
-
-
-@app.route("/submit", methods=["POST"])
-def submit():
-  global current_post_id
-
-  content = request.form.get("content", "")
-  ref_id = request.form.get("ref_id", "")
-  anonymous = request.form.get("anonymous", "true") == "true"
-  file = request.files.get("file")
-
-  if not content and not file:
-    return (
-        jsonify(
-            {"success": False, "message": "テキストかファイルを入力してください。"}
-        ),
-        400,
+    embed = discord.Embed(
+        title="📝 匿名掲示板",
+        description="下の「投稿する」ボタンを押すと入力画面が開きます。",
+        color=0x3498db
     )
+    await interaction.channel.send(embed=embed, view=PanelView())
+    await interaction.response.send_message("パネルを設置しました。", ephemeral=True)
 
-  current_post_id += 1
-  post_id = current_post_id
-  save_post_id(post_id)
-
-  async def send_to_discord():
-    board_channel = bot.get_channel(BOARD_CHANNEL_ID)
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-
-    author_name = "匿名" if anonymous else "投稿者"
-    now = datetime.datetime.now()
-    time_str = f"今日 {now.strftime('%H:%M')}"
-
-    description = content
-    if ref_id:
-      description = f">> {ref_id}\n" + description
-
-    embed = discord.Embed(description=description, color=0x2B2D31)
-    embed.set_author(name=f"{post_id} : {author_name}")
-    embed.set_footer(text=time_str)
-
-    discord_file = None
-    if file:
-      file_bytes = file.read()
-      discord_file = discord.File(
-          io.BytesIO(file_bytes), filename=file.filename
-      )
-      if file.content_type and file.content_type.startswith("image/"):
-        embed.set_image(url=f"attachment://{file.filename}")
-
-    if board_channel:
-      if discord_file:
-        await board_channel.send(
-            embed=embed, file=discord_file, view=PostButtonsView()
-        )
-      else:
-        await board_channel.send(embed=embed, view=PostButtonsView())
-
-    if log_channel:
-      log_embed = discord.Embed(
-          title=f"【投稿ログ】No.{post_id}",
-          color=0x2B2D31,
-          timestamp=now,
-      )
-      log_embed.add_field(
-          name="投稿種別",
-          value="匿名" if anonymous else "非匿名",
-          inline=True,
-      )
-      log_embed.add_field(
-          name="内容", value=content or "（本文なし）", inline=False
-      )
-      if file:
-        log_embed.add_field(
-            name="添付ファイル", value=f"`{file.filename}`", inline=False
-        )
-      await log_channel.send(embed=log_embed)
-
-  bot.loop.create_task(send_to_discord())
-  return jsonify({"success": True, "message": "投稿が完了しました！"})
-
-
-def run_flask():
-  port = int(os.environ.get("PORT", 10000))
-  app.run(host="0.0.0.0", port=port)
-
-
+# 実行
 if __name__ == "__main__":
-  t = Thread(target=run_flask)
-  t.start()
-  if BOT_TOKEN:
-    bot.run(BOT_TOKEN)
+    if TOKEN:
+        bot.run(TOKEN)
+    else:
+        print("エラー: DISCORD_TOKEN が設定されていません。")
