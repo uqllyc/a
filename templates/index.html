@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>投稿</title>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #0f0f0f; color: #f1f1f1; margin: 0; padding: 20px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 480px; background: #181818; padding: 20px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    .warning { background: #2a2100; color: #ffcc00; padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; }
+    .form-group { margin-bottom: 18px; }
+    label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+    input[type="text"], textarea { width: 100%; background: #252525; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 8px; font-size: 14px; }
+    textarea { height: 100px; resize: none; }
+    .radio-group { background: #252525; padding: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 10px; }
+    .radio-label { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 14px; cursor: pointer; }
+    .file-upload { background: #252525; border: 1px dashed #444; padding: 16px; border-radius: 8px; text-align: center; cursor: pointer; position: relative; }
+    .file-upload input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    .btn-submit { width: 100%; background: #5865F2; color: #fff; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    .btn-submit:disabled { background: #444; }
+    #status { margin-top: 12px; text-align: center; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="warning">
+    ⚠️ このフォームの内容は管理者に送られます。パスワードや個人情報は送信しないでください。
+  </div>
+
+  <form id="postForm" enctype="multipart/form-data">
+    <div class="form-group">
+      <label>本文 (任意)</label>
+      <textarea name="content" placeholder="本文（任意・画像・動画のみの投稿も可）"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>引用する投稿番号 (任意)</label>
+      <input type="text" name="ref_id" placeholder="例: 12">
+    </div>
+
+    <div class="form-group">
+      <label>投稿方法 *</label>
+      <div class="radio-group">
+        <label class="radio-label">
+          <span>匿名</span>
+          <input type="radio" name="anonymous" value="true" checked>
+        </label>
+        <label class="radio-label">
+          <span>非匿名</span>
+          <input type="radio" name="anonymous" value="false">
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>画像・動画</label>
+      <div class="file-upload">
+        <span id="fileName">📁 ファイルをアップロード (20MB未満)</span>
+        <input type="file" name="file" id="fileInput" accept="image/*,video/*">
+      </div>
+    </div>
+
+    <button type="submit" class="btn-submit" id="submitBtn">送信</button>
+  </form>
+
+  <div id="status"></div>
+</div>
+
+<script>
+  const fileInput = document.getElementById('fileInput');
+  const fileName = document.getElementById('fileName');
+  const form = document.getElementById('postForm');
+  const submitBtn = document.getElementById('submitBtn');
+  const status = document.getElementById('status');
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      fileName.textContent = '📎 ' + e.target.files[0].name;
+    } else {
+      fileName.textContent = '📁 ファイルをアップロード (20MB未満)';
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    status.textContent = '送信中...';
+
+    const formData = new FormData(form);
+
+    try {
+      const response = await fetch('/submit', {
+        method: 'POST',
+        body: formData
+      });
+      const result = await response.json();
+
+      if (response.ok) {
+        status.style.color = '#57F287';
+        status.textContent = result.message;
+        form.reset();
+        fileName.textContent = '📁 ファイルをアップロード (20MB未満)';
+      } else {
+        status.style.color = '#ED4245';
+        status.textContent = result.message || 'エラーが発生しました。';
+      }
+    } catch (err) {
+      status.style.color = '#ED4245';
+      status.textContent = '送信に失敗しました。';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
