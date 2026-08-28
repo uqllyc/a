@@ -74,17 +74,17 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
+    # ★何よりも最優先でメッセージを即時削除（アイコン・名前の見切れを防止）
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     # 1. ボタンを押して投稿待機状態のユーザーの場合
     if message.author.id in waiting_users:
         user_config = waiting_users[message.author.id]
 
         if message.channel.id == user_config["channel_id"]:
-            # 最優先で元メッセージを即時削除
-            try:
-                await message.delete()
-            except Exception:
-                pass
-
             # 登録情報を削除
             del waiting_users[message.author.id]
 
@@ -100,19 +100,18 @@ async def on_message(message: discord.Message):
             log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
             if not board_channel:
-                await message.channel.send("エラー: 投稿先のチャンネルが見つかりません。", delete_after=5)
                 return
 
             post_count += 1
             now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 
-            # 添付ファイルを取得
+            # 添付ファイルを取得（メッセージ削除後に並行処理）
             files_to_send = []
             for attachment in message.attachments:
                 file_data = await attachment.to_file()
                 files_to_send.append(file_data)
 
-            # 本文の取得（黒枠化なし）
+            # 本文の取得
             raw_text = message.content if message.content else "（画像のみ）"
 
             if user_config["reply_target"]:
@@ -150,13 +149,6 @@ async def on_message(message: discord.Message):
                 log_embed.add_field(name="投稿時間", value=now_jst)
                 log_embed.add_field(name="対象メッセージ", value=sent_msg.jump_url)
                 await log_channel.send(embed=log_embed)
-
-    # 2. ボタンを押さずに直接送信されたメッセージ（最速で即座に削除）
-    else:
-        try:
-            await message.delete()
-        except Exception:
-            pass
 
     await bot.process_commands(message)
 
