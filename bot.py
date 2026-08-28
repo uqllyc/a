@@ -36,8 +36,10 @@ def keep_alive():
 # 2. Discord Bot 設定
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
-BOARD_CHANNEL_ID = int(os.environ.get("BOARD_CHANNEL_ID", "0"))
-LOG_CHANNEL_ID = int(os.environ.get("LOG_CHANNEL_ID", "0"))
+
+# ★ここに直接チャンネルID（18〜19桁の数字）を記入してください★
+BOARD_CHANNEL_ID = 123456789012345678  # 掲示板チャンネルID
+LOG_CHANNEL_ID = 123456789012345678    # 管理者用ログチャンネルID
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -136,6 +138,7 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     else:
         embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
 
+    # 各投稿には「7つのボタン（新規4種＋返信2種＋通報）」を添付
     post_view = PostItemView(post_num=post_count)
     
     if files:
@@ -143,14 +146,13 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     else:
         sent_msg = await board_channel.send(embed=embed, view=post_view)
 
-    # ログ送信（管理者用ログの強化）
+    # ログ送信（管理者用）
     if log_channel:
         log_embed = discord.Embed(
             title=f"📋 【投稿ログ #{post_count}】",
             description=raw_text,
             color=0x2b2d31
         )
-        # 投稿者の実アカウント情報を明確に記録
         user_info = f"{interaction.user.mention}\n**名前:** {interaction.user.name}\n**ID:** `{interaction.user.id}`"
         log_embed.add_field(name="👤 投稿者（本人）", value=user_info, inline=True)
         log_embed.add_field(name="👁️ 表示形式", value="匿名" if is_anonymous else "非匿名", inline=True)
@@ -185,73 +187,92 @@ async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bo
     )
 
 # ==========================================
-# 共通ボタンコンポーネント（統一カラー＆ズレ防止）
+# ボタンコンポーネント
 # ==========================================
-class ActionButtonsMixin:
-    def add_action_buttons(self, post_num: int = None):
-        target_id = f"_{post_num}" if post_num else ""
-        reply_str = f"#{post_num}" if post_num else None
 
-        # --- 1行目: 新規投稿（テキスト ＝ 青 / 画像 ＝ 緑） ---
-        # 1. 匿名 (青)
-        btn_anon = discord.ui.Button(label="匿名", style=discord.ButtonStyle.primary, custom_id=f"btn_anon{target_id}", row=0)
+# 1. メインパネル用（新規投稿のみ：4つ）
+class PanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+        # 匿名
+        btn_anon = discord.ui.Button(label="匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_anon")
         async def cb_anon(interaction: discord.Interaction):
-            await interaction.response.send_modal(TextPostModal(is_anonymous=True, reply_target=reply_str))
+            await interaction.response.send_modal(TextPostModal(is_anonymous=True))
         btn_anon.callback = cb_anon
         self.add_item(btn_anon)
 
-        # 2. 非匿名 (青)
-        btn_named = discord.ui.Button(label="非匿名", style=discord.ButtonStyle.primary, custom_id=f"btn_named{target_id}", row=0)
+        # 非匿名
+        btn_named = discord.ui.Button(label="非匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_named")
         async def cb_named(interaction: discord.Interaction):
-            await interaction.response.send_modal(TextPostModal(is_anonymous=False, reply_target=reply_str))
+            await interaction.response.send_modal(TextPostModal(is_anonymous=False))
         btn_named.callback = cb_named
         self.add_item(btn_named)
 
-        # 3. 匿名画像 (緑)
-        btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_anon{target_id}", row=0)
+        # 匿名画像
+        btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
         async def cb_img_anon(interaction: discord.Interaction):
-            await prompt_image_upload(interaction, is_anonymous=True, reply_target=reply_str)
+            await prompt_image_upload(interaction, is_anonymous=True)
         btn_img_anon.callback = cb_img_anon
         self.add_item(btn_img_anon)
 
-        # 4. 非匿名画像 (緑)
-        btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_named{target_id}", row=0)
+        # 非匿名画像
+        btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
         async def cb_img_named(interaction: discord.Interaction):
-            await prompt_image_upload(interaction, is_anonymous=False, reply_target=reply_str)
+            await prompt_image_upload(interaction, is_anonymous=False)
         btn_img_named.callback = cb_img_named
         self.add_item(btn_img_named)
 
-        # --- 2行目: 返信（灰） ＆ 通報（赤） ---
-        # 5. 匿名返信 (灰)
+# 2. 各投稿メッセージ用（7つのボタン：新規4種 + 返信2種 + 通報）
+class PostItemView(discord.ui.View):
+    def __init__(self, post_num: int):
+        super().__init__(timeout=None)
+        target_id = f"_{post_num}"
+        reply_str = f"#{post_num}"
+
+        # --- 1行目: 新規投稿ボタン (4つ) ---
+        btn_anon = discord.ui.Button(label="匿名", style=discord.ButtonStyle.primary, custom_id=f"btn_anon{target_id}", row=0)
+        async def cb_anon(interaction: discord.Interaction):
+            await interaction.response.send_modal(TextPostModal(is_anonymous=True))
+        btn_anon.callback = cb_anon
+        self.add_item(btn_anon)
+
+        btn_named = discord.ui.Button(label="非匿名", style=discord.ButtonStyle.primary, custom_id=f"btn_named{target_id}", row=0)
+        async def cb_named(interaction: discord.Interaction):
+            await interaction.response.send_modal(TextPostModal(is_anonymous=False))
+        btn_named.callback = cb_named
+        self.add_item(btn_named)
+
+        btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_anon{target_id}", row=0)
+        async def cb_img_anon(interaction: discord.Interaction):
+            await prompt_image_upload(interaction, is_anonymous=True)
+        btn_img_anon.callback = cb_img_anon
+        self.add_item(btn_img_anon)
+
+        btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_named{target_id}", row=0)
+        async def cb_img_named(interaction: discord.Interaction):
+            await prompt_image_upload(interaction, is_anonymous=False)
+        btn_img_named.callback = cb_img_named
+        self.add_item(btn_img_named)
+
+        # --- 2行目: 返信 & 通報ボタン (3つ) ---
         btn_reply_anon = discord.ui.Button(label="匿名返信", style=discord.ButtonStyle.secondary, custom_id=f"btn_reply_anon{target_id}", row=1)
         async def cb_reply_anon(interaction: discord.Interaction):
-            await interaction.response.send_modal(TextPostModal(is_anonymous=True, reply_target=f"#{post_num}" if post_num else None))
+            await interaction.response.send_modal(TextPostModal(is_anonymous=True, reply_target=reply_str))
         btn_reply_anon.callback = cb_reply_anon
         self.add_item(btn_reply_anon)
 
-        # 6. 非匿名返信 (灰)
         btn_reply_named = discord.ui.Button(label="非匿名返信", style=discord.ButtonStyle.secondary, custom_id=f"btn_reply_named{target_id}", row=1)
         async def cb_reply_named(interaction: discord.Interaction):
-            await interaction.response.send_modal(TextPostModal(is_anonymous=False, reply_target=f"#{post_num}" if post_num else None))
+            await interaction.response.send_modal(TextPostModal(is_anonymous=False, reply_target=reply_str))
         btn_reply_named.callback = cb_reply_named
         self.add_item(btn_reply_named)
 
-        # 7. 通報 (赤)
         btn_report = discord.ui.Button(label="通報", style=discord.ButtonStyle.danger, custom_id=f"btn_report{target_id}", row=1)
         async def cb_report(interaction: discord.Interaction):
-            await interaction.response.send_modal(ReportModal(target_post=f"#{post_num}" if post_num else None))
+            await interaction.response.send_modal(ReportModal(target_post=reply_str))
         btn_report.callback = cb_report
         self.add_item(btn_report)
-
-class PostItemView(discord.ui.View, ActionButtonsMixin):
-    def __init__(self, post_num: int):
-        super().__init__(timeout=None)
-        self.add_action_buttons(post_num=post_num)
-
-class PanelView(discord.ui.View, ActionButtonsMixin):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_action_buttons()
 
 # --- メッセージ検知（画像投稿の処理 ＆ 直接入力メッセージ削除） ---
 @bot.event
@@ -260,12 +281,10 @@ async def on_message(message: discord.Message):
         return
 
     if message.channel.id == BOARD_CHANNEL_ID:
-        # 最優先で削除APIを呼び出し（削除速度最速化）
         delete_task = bot.loop.create_task(message.delete())
 
         user_id = message.author.id
 
-        # 画像投稿モードのユーザーからの送信時
         if user_id in pending_image_users:
             config = pending_image_users.pop(user_id)
             
@@ -274,13 +293,11 @@ async def on_message(message: discord.Message):
                 file_data = await attachment.to_file()
                 files.append(file_data)
 
-            # 削除の完了を待機
             try:
                 await delete_task
             except Exception:
                 pass
 
-            # 投稿処理呼び出し
             fake_interaction = type('obj', (object,), {
                 'user': message.author,
                 'response': type('obj', (object,), {'is_done': lambda: True})()
@@ -295,7 +312,6 @@ async def on_message(message: discord.Message):
             )
             return
 
-        # 投稿モード以外の通常のメッセージ投稿の場合も削除を待機
         try:
             await delete_task
         except Exception:
