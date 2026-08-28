@@ -1,15 +1,33 @@
 import datetime
 import os
+from threading import Thread
 import discord
 from discord import app_commands
 from discord.ext import commands
+from flask import Flask
+
+# --------------------------------------------------
+# Renderのエラー対策用ダミーWebサーバー (Flask)
+# --------------------------------------------------
+app = Flask(__name__)
+
+
+@app.route('/')
+def home():
+  return 'Bot is running!'
+
+
+def run_flask():
+  port = int(os.environ.get('PORT', 10000))
+  app.run(host='0.0.0.0', port=port)
+
 
 # --------------------------------------------------
 # 【設定】IDとトークン
 # --------------------------------------------------
 BOARD_CHANNEL_ID = 1542868096640098444  # 掲示板チャンネルID
 LOG_CHANNEL_ID = 1542866592566747166  # 管理者用ログチャンネルID
-BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
+BOT_TOKEN = os.environ.get('DISCORD_TOKEN')
 
 post_count = 0
 
@@ -23,7 +41,7 @@ intents.message_content = True
 class AnonymousBoardBot(commands.Bot):
 
   def __init__(self):
-    super().__init__(command_prefix="!", intents=intents)
+    super().__init__(command_prefix='!', intents=intents)
 
   async def setup_hook(self):
     self.add_view(PostButtonsView())
@@ -34,31 +52,31 @@ bot = AnonymousBoardBot()
 
 
 # 投稿入力画面（Discord内のポップアップモーダル）
-class PostModal(discord.ui.Modal, title="投稿"):
+class PostModal(discord.ui.Modal, title='投稿'):
 
   def __init__(self):
     super().__init__()
 
   content = discord.ui.TextInput(
-      label="投稿",
+      label='投稿',
       style=discord.TextStyle.paragraph,
-      placeholder="本文を入力してください",
+      placeholder='本文を入力してください',
       required=False,
       max_length=1800,
   )
 
   ref_id = discord.ui.TextInput(
-      label="レス",
+      label='レス',
       style=discord.TextStyle.short,
-      placeholder="例: 99 / n99",
+      placeholder='例: 99 / n99',
       required=False,
   )
 
   method = discord.ui.TextInput(
-      label="投稿方法",
+      label='投稿方法',
       style=discord.TextStyle.short,
-      placeholder="「匿名」または「非匿名」を入力（初期値: 匿名）",
-      default="匿名",
+      placeholder='「匿名」または「非匿名」を入力（初期値: 匿名）',
+      default='匿名',
       required=False,
   )
 
@@ -74,21 +92,21 @@ class PostModal(discord.ui.Modal, title="投稿"):
     time_str = f"今日 {now.strftime('%H:%M')}"
 
     # 投稿者名の判定
-    is_anon = self.method.value.strip() != "非匿名"
-    author_name = "匿名" if is_anon else interaction.user.display_name
+    is_anon = self.method.value.strip() != '非匿名'
+    author_name = '匿名' if is_anon else interaction.user.display_name
 
     # 本文の組み立て
-    description_text = ""
+    description_text = ''
     if self.ref_id.value:
-      description_text += f">>{self.ref_id.value}\n"
+      description_text += f'>>{self.ref_id.value}\n'
     if self.content.value:
       description_text += self.content.value
 
     # Embedの生成（送信日時を下にセット）
     embed = discord.Embed(
-        description=description_text or "（本文なし）", color=0x2B2D31
+        description=description_text or '（本文なし）', color=0x2B2D31
     )
-    embed.set_author(name=f"{post_count} : {author_name}")
+    embed.set_author(name=f'{post_count} : {author_name}')
     embed.set_footer(text=time_str)
 
     # 掲示板へ送信
@@ -98,27 +116,27 @@ class PostModal(discord.ui.Modal, title="投稿"):
     # 管理用ログへ送信
     if log_channel:
       log_embed = discord.Embed(
-          title=f"【投稿ログ】No.{post_count}",
+          title=f'【投稿ログ】No.{post_count}',
           color=0x2B2D31,
           timestamp=now,
       )
       log_embed.add_field(
-          name="投稿者",
-          value=f"{interaction.user.mention} ({interaction.user.name})",
+          name='投稿者',
+          value=f'{interaction.user.mention} ({interaction.user.name})',
           inline=False,
       )
       log_embed.add_field(
-          name="投稿種別", value="匿名" if is_anon else "非匿名", inline=True
+          name='投稿種別', value='匿名' if is_anon else '非匿名', inline=True
       )
       log_embed.add_field(
-          name="内容",
-          value=self.content.value or "（本文なし）",
+          name='内容',
+          value=self.content.value or '（本文なし）',
           inline=False,
       )
       await log_channel.send(embed=log_embed)
 
     await interaction.response.send_message(
-        "投稿が完了しました！", ephemeral=True
+        '投稿が完了しました！', ephemeral=True
     )
 
 
@@ -129,10 +147,10 @@ class PostButtonsView(discord.ui.View):
     super().__init__(timeout=None)
 
   @discord.ui.button(
-      label="投稿",
+      label='投稿',
       style=discord.ButtonStyle.secondary,
-      emoji="✉️",
-      custom_id="post_modal_button",
+      emoji='✉️',
+      custom_id='post_modal_button',
   )
   async def post_button(
       self, interaction: discord.Interaction, button: discord.ui.Button
@@ -141,9 +159,9 @@ class PostButtonsView(discord.ui.View):
     await interaction.response.send_modal(PostModal())
 
   @discord.ui.button(
-      label="通報",
+      label='通報',
       style=discord.ButtonStyle.danger,
-      custom_id="report_button_persistent",
+      custom_id='report_button_persistent',
   )
   async def report_button(
       self, interaction: discord.Interaction, button: discord.ui.Button
@@ -151,53 +169,57 @@ class PostButtonsView(discord.ui.View):
     log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
     message = interaction.message
     post_title = (
-        message.embeds[0].author.name if message.embeds else "不明な投稿"
+        message.embeds[0].author.name if message.embeds else '不明な投稿'
     )
     post_content = (
-        message.embeds[0].description if message.embeds else "内容なし"
+        message.embeds[0].description if message.embeds else '内容なし'
     )
 
     if log_channel:
       report_embed = discord.Embed(
-          title="🚨 通報通知", color=0xED4245, timestamp=datetime.datetime.now()
+          title='🚨 通報通知', color=0xED4245, timestamp=datetime.datetime.now()
       )
       report_embed.add_field(
-          name="通報者",
-          value=f"{interaction.user.mention} ({interaction.user.name})",
+          name='通報者',
+          value=f'{interaction.user.mention} ({interaction.user.name})',
           inline=False,
       )
       report_embed.add_field(
-          name="対象投稿", value=post_title, inline=False
+          name='対象投稿', value=post_title, inline=False
       )
       report_embed.add_field(
-          name="投稿内容", value=post_content, inline=False
+          name='投稿内容', value=post_content, inline=False
       )
       report_embed.add_field(
-          name="投稿URL", value=message.jump_url, inline=False
+          name='投稿URL', value=message.jump_url, inline=False
       )
       await log_channel.send(embed=report_embed)
 
     await interaction.response.send_message(
-        "通報を受け付けました。", ephemeral=True
+        '通報を受け付けました。', ephemeral=True
     )
 
 
 # パネル設置コマンド
 @bot.tree.command(
-    name="setup_panel", description="掲示板に投稿ボタンパネルを設置します"
+    name='setup_panel', description='掲示板に投稿ボタンパネルを設置します'
 )
 async def setup_panel(interaction: discord.Interaction):
   embed = discord.Embed(
-      title="📝 匿名掲示板",
-      description="下の「投稿」ボタンを押すと入力画面が開きます。",
+      title='📝 匿名掲示板',
+      description='下の「投稿」ボタンを押すと入力画面が開きます。',
       color=0x5865F2,
   )
   await interaction.channel.send(embed=embed, view=PostButtonsView())
   await interaction.response.send_message(
-      "パネルを設置しました。", ephemeral=True
+      'パネルを設置しました。', ephemeral=True
   )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+  # バックグラウンドでWebサーバーを起動（Renderのポート検知をクリアするため）
+  t = Thread(target=run_flask)
+  t.start()
+
   if BOT_TOKEN:
     bot.run(BOT_TOKEN)
