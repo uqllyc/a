@@ -9,10 +9,12 @@ from discord.ext import commands
 from flask import Flask, jsonify, render_template, request
 
 # --------------------------------------------------
-# 【設定】IDと環境変数
+# Webサーバー（Flask）の設定
 # --------------------------------------------------
-BOARD_CHANNEL_ID = 1542868096640098444  # 掲示板チャンネルID
-LOG_CHANNEL_ID = 1542866592566747166  # 管理者用ログチャンネルID
+app = Flask(__name__)
+
+BOARD_CHANNEL_ID = 1542868096640098444
+LOG_CHANNEL_ID = 1542866592566747166
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
 WEB_URL = os.environ.get(
     "RENDER_EXTERNAL_URL", "https://a-ai9n.onrender.com"
@@ -20,9 +22,6 @@ WEB_URL = os.environ.get(
 DATA_FILE = "post_count.json"
 
 
-# --------------------------------------------------
-# 投稿番号の保存・読み込み
-# --------------------------------------------------
 def load_post_id():
   if os.path.exists(DATA_FILE):
     try:
@@ -40,9 +39,6 @@ def save_post_id(post_id):
 
 current_post_id = load_post_id()
 
-# --------------------------------------------------
-# Discord Botの設定
-# --------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -64,15 +60,23 @@ class PostButtonsView(discord.ui.View):
 
   def __init__(self):
     super().__init__(timeout=None)
-    # アプリ内画面を開く投稿ボタン
-    self.add_item(
-        discord.ui.Button(
-            label="投稿",
-            style=discord.ButtonStyle.link,
-            url=WEB_URL,
-            emoji="✉️",
-        )
+
+  @discord.ui.button(
+      label="投稿",
+      style=discord.ButtonStyle.primary,
+      emoji="✉️",
+      custom_id="launch_frame_app",
+  )
+  async def launch_app(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    # 警告ポップアップを出さずに即座にアプリ内UIとして表示させる応答
+    embed = discord.Embed(
+        title="📝 投稿フォーム",
+        description=f"[👉 ここをタップして投稿画面を開く]({WEB_URL})",
+        color=0x2B2D31,
     )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
   @discord.ui.button(
       label="通報",
@@ -122,28 +126,13 @@ class PostButtonsView(discord.ui.View):
 async def setup_panel(interaction: discord.Interaction):
   embed = discord.Embed(
       title="📝 匿名掲示板",
-      description="下の「投稿」ボタンを押すと入力画面が開きます。\n画像や動画も一緒にアップロードできます！",
+      description="下の「投稿」ボタンを押すと入力画面が開きます。",
       color=0x5865F2,
   )
-  view = discord.ui.View()
-  view.add_item(
-      discord.ui.Button(
-          label="投稿",
-          style=discord.ButtonStyle.link,
-          url=WEB_URL,
-          emoji="✉️",
-      )
-  )
-  await interaction.channel.send(embed=embed, view=view)
+  await interaction.channel.send(embed=embed, view=PostButtonsView())
   await interaction.response.send_message(
       "パネルを設置しました。", ephemeral=True
   )
-
-
-# --------------------------------------------------
-# Webサーバー（Flask）の設定
-# --------------------------------------------------
-app = Flask(__name__)
 
 
 @app.route("/")
@@ -177,7 +166,6 @@ def submit():
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
     author_name = "匿名" if anonymous else "投稿者"
-
     now = datetime.datetime.now()
     time_str = f"今日 {now.strftime('%H:%M')}"
 
