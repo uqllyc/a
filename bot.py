@@ -336,7 +336,7 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="下のボタンを選択して投稿してください。\n"
+        description="匿名 非匿名で投稿。\n"
                     "画像投稿時は「匿名画像」または「非匿名画像」を押した後に画像をチャットへ送信します。",
         color=0x000000
     )
