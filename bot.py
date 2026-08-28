@@ -118,7 +118,7 @@ class ImagePostModal(discord.ui.Modal):
 
         await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
 
-# --- 画像投稿時の形式選択ボタン（DM内） ---
+# --- 画像投稿用の匿名/非匿名選択ビュー（DM内） ---
 class ImageChoiceView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=120)
@@ -166,7 +166,7 @@ class ReportModal(discord.ui.Modal):
 
 # ==========================================
 # 各投稿メッセージの下につくボタン一覧（指定順）
-# 順序: 匿名 ➔ 非匿名 ➔ 画像 ➔ 匿名返信 ➔ 非匿名返信 ➔ 通報
+# 配置: 匿名 | 非匿名 | 画像 | 匿名返信 | 非匿名返信 | 通報
 # ==========================================
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
@@ -184,7 +184,7 @@ class PostItemView(discord.ui.View):
     @discord.ui.button(label="画像", style=discord.ButtonStyle.success, custom_id="item_post_image")
     async def post_image(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "📷 **画像投稿の手順**\nこのチャンネル（掲示板）に画像を直接送信してください。\n送信すると自動で回収され、匿名/非匿名を選択して投稿できます。",
+            "📷 **画像投稿の手順**\nこのチャンネルに直接画像を送信（ドラッグ＆ドロップ）してください。\n送信されるとそのまま匿名/非匿名を選んで投稿できます。",
             ephemeral=True
         )
 
@@ -216,7 +216,7 @@ class PanelView(discord.ui.View):
     @discord.ui.button(label="画像", style=discord.ButtonStyle.success, custom_id="btn_post_image")
     async def open_post_image(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "📷 **画像投稿の手順**\nこのチャンネル（掲示板）に画像を直接送信してください。\n送信すると自動で回収され、匿名/非匿名を選択して投稿できます。",
+            "📷 **画像投稿の手順**\nこのチャンネルに直接画像を送信（ドラッグ＆ドロップ）してください。\n送信されるとそのまま匿名/非匿名を選んで投稿できます。",
             ephemeral=True
         )
 
@@ -240,16 +240,16 @@ async def on_message(message: discord.Message):
             
             user_images[message.author.id] = files
 
-            # 直投げされた画像メッセージを削除
+            # 画像メッセージは即削除して他者から見えないようにする
             try:
                 await message.delete()
             except Exception:
                 pass
 
-            # DMで選択メニューを送付
+            # DMへ「匿名」「非匿名」ボタンを直接送信
             try:
                 await message.author.send(
-                    content="**画像を受け取りました！**\n「匿名」または「非匿名」を選択し、メッセージを入力してください。",
+                    content="🖼️ **画像を受け取りました！**\n「匿名」か「非匿名」を選んでメッセージを入力してください。",
                     view=ImageChoiceView()
                 )
             except discord.Forbidden:
@@ -281,9 +281,9 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="**匿名 / 非匿名**: テキストのみを投稿します。\n"
-                    "**画像**: 画像付き投稿の手順を表示します。\n"
-                    "**通報**: 違反投稿を管理者へ報告します。",
+        description="**匿名 / 非匿名**: テキストのみ投稿\n"
+                    "**画像**: 画像付き投稿の手順案内\n"
+                    "**通報**: 管理者へ通報",
         color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
