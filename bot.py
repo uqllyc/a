@@ -46,22 +46,25 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- 案内メッセージ送信関数 ---
 async def start_attachment_post(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
-    waiting_users[interaction.user.id] = {
-        "is_anonymous": is_anonymous,
-        "reply_target": reply_target,
-        "channel_id": interaction.channel_id
-    }
-    
     target_str = f"（{reply_target} 宛て）" if reply_target else ""
     type_str = "匿名" if is_anonymous else "非匿名"
     
     msg = (
-        f"**{type_str}で投稿するよ {target_str}**\n\n"
+        f"で投稿するよ {target_str}**\n\n"
         f"メッセージや画像をこのチャンネルに入力・送信してください。\n"
         f"*(送信したら元メッセージは自動で消えて掲示板に載ります)*"
     )
     
+    # メッセージを送信し、オブジェクトを取得
     await interaction.response.send_message(msg, ephemeral=True)
+    notice_msg = await interaction.original_response()
+
+    waiting_users[interaction.user.id] = {
+        "is_anonymous": is_anonymous,
+        "reply_target": reply_target,
+        "channel_id": interaction.channel_id,
+        "notice_message": notice_msg  # 案内メッセージを保持
+    }
 
 # --- ユーザーからの直接メッセージ（画像＋本文）を監視 ---
 @bot.event
@@ -75,7 +78,16 @@ async def on_message(message: discord.Message):
         user_config = waiting_users[message.author.id]
 
         if message.channel.id == user_config["channel_id"]:
+            # 登録情報を削除
             del waiting_users[message.author.id]
+
+            # 案内メッセージ（ephemeral）を削除
+            notice_msg = user_config.get("notice_message")
+            if notice_msg:
+                try:
+                    await notice_msg.delete()
+                except Exception:
+                    pass
 
             board_channel = bot.get_channel(BOARD_CHANNEL_ID)
             log_channel = bot.get_channel(LOG_CHANNEL_ID)
