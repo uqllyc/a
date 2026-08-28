@@ -1,4 +1,5 @@
 import datetime
+import os
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -32,7 +33,7 @@ class AnonymousBoardBot(commands.Bot):
 bot = AnonymousBoardBot()
 
 
-# 投稿入力モーダル（ポップアップ画面）
+# 投稿入力画面（Discord内のポップアップモーダル）
 class PostModal(discord.ui.Modal, title="投稿"):
 
   def __init__(self):
@@ -41,7 +42,7 @@ class PostModal(discord.ui.Modal, title="投稿"):
   content = discord.ui.TextInput(
       label="投稿",
       style=discord.TextStyle.paragraph,
-      placeholder="本文（任意・画像・動画のみの投稿も可）",
+      placeholder="本文を入力してください",
       required=False,
       max_length=1800,
   )
@@ -56,7 +57,7 @@ class PostModal(discord.ui.Modal, title="投稿"):
   method = discord.ui.TextInput(
       label="投稿方法",
       style=discord.TextStyle.short,
-      placeholder="「匿名」または「非匿名」を入力してください（初期値: 匿名）",
+      placeholder="「匿名」または「非匿名」を入力（初期値: 匿名）",
       default="匿名",
       required=False,
   )
@@ -68,7 +69,7 @@ class PostModal(discord.ui.Modal, title="投稿"):
     board_channel = interaction.guild.get_channel(BOARD_CHANNEL_ID)
     log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
 
-    # 日時の取得（例: 今日 1:48）
+    # 日時の取得（例: 今日 02:37）
     now = datetime.datetime.now()
     time_str = f"今日 {now.strftime('%H:%M')}"
 
@@ -76,25 +77,25 @@ class PostModal(discord.ui.Modal, title="投稿"):
     is_anon = self.method.value.strip() != "非匿名"
     author_name = "匿名" if is_anon else interaction.user.display_name
 
-    # 本文の作成（レス番号があれば追加）
+    # 本文の組み立て
     description_text = ""
     if self.ref_id.value:
       description_text += f">>{self.ref_id.value}\n"
     if self.content.value:
       description_text += self.content.value
 
-    # Embedの作成
+    # Embedの生成（送信日時を下にセット）
     embed = discord.Embed(
         description=description_text or "（本文なし）", color=0x2B2D31
     )
     embed.set_author(name=f"{post_count} : {author_name}")
     embed.set_footer(text=time_str)
 
-    # 掲示板チャンネルへ送信
+    # 掲示板へ送信
     if board_channel:
       await board_channel.send(embed=embed, view=PostButtonsView())
 
-    # 管理用ログチャンネルへ送信
+    # 管理用ログへ送信
     if log_channel:
       log_embed = discord.Embed(
           title=f"【投稿ログ】No.{post_count}",
@@ -121,18 +122,22 @@ class PostModal(discord.ui.Modal, title="投稿"):
     )
 
 
-# 掲示板の下に付くボタン
+# メッセージの下に付くボタン
 class PostButtonsView(discord.ui.View):
 
   def __init__(self):
     super().__init__(timeout=None)
 
   @discord.ui.button(
-      label="投稿", style=discord.ButtonStyle.secondary, emoji="✉️"
+      label="投稿",
+      style=discord.ButtonStyle.secondary,
+      emoji="✉️",
+      custom_id="post_modal_button",
   )
   async def post_button(
       self, interaction: discord.Interaction, button: discord.ui.Button
   ):
+    # Discord内のモーダルを開く
     await interaction.response.send_modal(PostModal())
 
   @discord.ui.button(
@@ -177,14 +182,14 @@ class PostButtonsView(discord.ui.View):
     )
 
 
-# コマンドでパネルを設置
+# パネル設置コマンド
 @bot.tree.command(
     name="setup_panel", description="掲示板に投稿ボタンパネルを設置します"
 )
 async def setup_panel(interaction: discord.Interaction):
   embed = discord.Embed(
       title="📝 匿名掲示板",
-      description="下の「投稿」ボタンを押すとフォームが開きます。",
+      description="下の「投稿」ボタンを押すと入力画面が開きます。",
       color=0x5865F2,
   )
   await interaction.channel.send(embed=embed, view=PostButtonsView())
@@ -194,7 +199,5 @@ async def setup_panel(interaction: discord.Interaction):
 
 
 if __name__ == "__main__":
-  import os
-
   if BOT_TOKEN:
     bot.run(BOT_TOKEN)
