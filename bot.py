@@ -64,7 +64,6 @@ class AnonymousBoardBot(commands.Bot):
 
   async def setup_hook(self):
     self.add_view(PostButtonsView())
-    await self.tree.sync()
 
 
 bot = AnonymousBoardBot()
@@ -212,10 +211,16 @@ async def post(
 
 
 # --------------------------------------------------
-# 3. 起動設定
+# 3. 起動設定とコマンド自動同期
 # --------------------------------------------------
 @bot.event
 async def on_ready():
+  try:
+    synced = await bot.tree.sync()
+    print(f"コマンド同期完了: {len(synced)} 個のコマンドを同期しました。")
+  except Exception as e:
+    print(f"コマンド同期エラー: {e}")
+
   print(
       f"Logged in as {bot.user} - 起動完了（現在の投稿ID: {bot.current_post_id}）"
   )
