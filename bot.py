@@ -1,29 +1,16 @@
 import datetime
-import io
 import json
 import os
-from threading import Thread
 import discord
 from discord import app_commands
 from discord.ext import commands
-from flask import Flask, jsonify, render_template, request
 
-# --------------------------------------------------
-# 【設定】IDとトークン
-# --------------------------------------------------
 BOARD_CHANNEL_ID = 1542868096640098444  # 掲示板チャンネルID
 LOG_CHANNEL_ID = 1542866592566747166  # 管理者用ログチャンネルID
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
-# RenderのWebサイトURL（末尾にスラッシュは不要）
-WEB_URL = os.environ.get(
-    "RENDER_EXTERNAL_URL", "https://a-ai9n.onrender.com"
-)
 DATA_FILE = "post_count.json"
 
 
-# --------------------------------------------------
-# 投稿番号の保存・読み込み
-# --------------------------------------------------
 def load_post_id():
   if os.path.exists(DATA_FILE):
     try:
@@ -41,40 +28,107 @@ def save_post_id(post_id):
 
 current_post_id = load_post_id()
 
-# --------------------------------------------------
-# Discord Botの設定
-# --------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 
 
-class AnonymousBoardBot(commands.Bot):
+# Discord内で開くモーダル画面
+class PostModal(discord.ui.Modal, title="投稿"):
 
-  def __init__(self):
-    super().__init__(command_prefix="!", intents=intents)
+  content_input = discord.ui.TextInput(
+      label="投稿",
+      style=discord.TextStyle.paragraph,
+      placeholder="本文（任意）",
+      required=False,
+      max_length=1800,
+  )
 
-  async def setup_hook(self):
-    self.add_view(PostButtonsView())
-    await self.tree.sync()
+  ref_input = discord.ui.TextInput(
+      label="レス",
+      style=discord.TextStyle.short,
+      placeholder="引用する投稿番号（任意 例: 99）",
+      required=False,
+  )
+
+  image_url_input = discord.ui.TextInput(
+      label="画像・動画のURL",
+      style=discord.TextStyle.short,
+      placeholder="https://...（直リンクURLを入力・任意）",
+      required=False,
+  )
+
+  async def on_submit(self, interaction: discord.Interaction):
+    global current_post_id
+
+    content = self.content_input.value
+    ref_id = self.ref_input.value
+    image_url = self.image_url_input.value
+
+    if not content and not image_url:
+      await interaction.response.send_message(
+          "本文または画像URLを入力してください。", ephemeral=True
+      )
+      return
+
+    current_post_id += 1
+    post_id = current_post_id
+    save_post_id(post_id)
+
+    board_channel = interaction.guild.get_channel(BOARD_CHANNEL_ID)
+    log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    description = content or ""
+    if ref_id:
+      description = f">> {ref_id}\n" + description
+
+    embed = discord.Embed(description=description, color=0x2B2D31)
+    embed.set_author(name=f"{post_id} : 匿名 • {now_str}")
+
+    if image_url:
+      embed.set_image(url=image_url)
+
+    if board_channel:
+      await board_channel.send(embed=embed, view=PostButtonsView())
+
+    if log_channel:
+      log_embed = discord.Embed(
+          title=f"【投稿ログ】No.{post_id}",
+          color=0x2B2D31,
+          timestamp=datetime.datetime.now(),
+      )
+      log_embed.add_field(
+          name="投稿者",
+          value=f"{interaction.user.mention} ({interaction.user.name})",
+          inline=False,
+      )
+      log_embed.add_field(
+          name="内容", value=content or "（本文なし）", inline=False
+      )
+      if image_url:
+        log_embed.add_field(name="画像URL", value=image_url, inline=False)
+      await log_channel.send(embed=log_embed)
+
+    await interaction.response.send_message(
+        "投稿が完了しました！", ephemeral=True
+    )
 
 
-bot = AnonymousBoardBot()
-
-
-# 各投稿の表下に付くボタン（投稿フォームを開くボタン ＆ 通報ボタン）
 class PostButtonsView(discord.ui.View):
 
   def __init__(self):
     super().__init__(timeout=None)
-    # WEB_URL へのリンクボタンを追加（を押すとフォームが開く）
-    self.add_item(
-        discord.ui.Button(
-            label="投稿",
-            style=discord.ButtonStyle.link,
-            url=WEB_URL,
-            emoji="✉️",
-        )
-    )
+
+  @discord.ui.button(
+      label="投稿",
+      style=discord.ButtonStyle.secondary,
+      custom_id="post_button_persistent",
+      emoji="✉️",
+  )
+  async def post_button(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    await interaction.response.send_modal(PostModal())
 
   @discord.ui.button(
       label="通報",
@@ -118,125 +172,34 @@ class PostButtonsView(discord.ui.View):
     )
 
 
-# 最初にパネルを設置するコマンド
+class AnonymousBoardBot(commands.Bot):
+
+  def __init__(self):
+    super().__init__(command_prefix="!", intents=intents)
+
+  async def setup_hook(self):
+    self.add_view(PostButtonsView())
+    await self.tree.sync()
+
+
+bot = AnonymousBoardBot()
+
+
 @bot.tree.command(
     name="setup_panel", description="掲示板に投稿ボタンパネルを設置します"
 )
 async def setup_panel(interaction: discord.Interaction):
   embed = discord.Embed(
       title="📝 匿名掲示板",
-      description="下の「投稿」ボタンを押すとフォームが開きます。\n画像や動画も直接アップロードできます！",
+      description="下の「投稿」ボタンを押して投稿を作成してください。",
       color=0x5865F2,
   )
-  view = discord.ui.View()
-  view.add_item(
-      discord.ui.Button(
-          label="投稿",
-          style=discord.ButtonStyle.link,
-          url=WEB_URL,
-          emoji="✉️",
-      )
-  )
-  await interaction.channel.send(embed=embed, view=view)
+  await interaction.channel.send(embed=embed, view=PostButtonsView())
   await interaction.response.send_message(
       "パネルを設置しました。", ephemeral=True
   )
 
 
-# --------------------------------------------------
-# Webサーバー（Flask）の設定
-# --------------------------------------------------
-app = Flask(__name__)
-
-
-@app.route("/")
-def index():
-  return render_template("index.html")
-
-
-@app.route("/submit", methods=["POST"])
-def submit():
-  global current_post_id
-
-  content = request.form.get("content", "")
-  ref_id = request.form.get("ref_id", "")
-  anonymous = request.form.get("anonymous", "true") == "true"
-  file = request.files.get("file")
-
-  if not content and not file:
-    return (
-        jsonify(
-            {"success": False, "message": "テキストかファイルを入力してください。"}
-        ),
-        400,
-    )
-
-  current_post_id += 1
-  post_id = current_post_id
-  save_post_id(post_id)
-
-  async def send_to_discord():
-    board_channel = bot.get_channel(BOARD_CHANNEL_ID)
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    author_name = "匿名" if anonymous else "投稿者"
-
-    description = content
-    if ref_id:
-      description = f">> {ref_id}\n" + description
-
-    embed = discord.Embed(description=description, color=0x2B2D31)
-    embed.set_author(name=f"{post_id} : {author_name}")
-
-    discord_file = None
-    if file:
-      file_bytes = file.read()
-      discord_file = discord.File(
-          io.BytesIO(file_bytes), filename=file.filename
-      )
-      if file.content_type and file.content_type.startswith("image/"):
-        embed.set_image(url=f"attachment://{file.filename}")
-
-    if board_channel:
-      if discord_file:
-        await board_channel.send(
-            embed=embed, file=discord_file, view=PostButtonsView()
-        )
-      else:
-        await board_channel.send(embed=embed, view=PostButtonsView())
-
-    if log_channel:
-      log_embed = discord.Embed(
-          title=f"【投稿ログ】No.{post_id}",
-          color=0x2B2D31,
-          timestamp=datetime.datetime.now(),
-      )
-      log_embed.add_field(
-          name="投稿種別",
-          value="匿名" if anonymous else "非匿名",
-          inline=True,
-      )
-      log_embed.add_field(
-          name="内容", value=content or "（本文なし）", inline=False
-      )
-      if file:
-        log_embed.add_field(
-            name="添付ファイル", value=f"`{file.filename}`", inline=False
-        )
-      await log_channel.send(embed=log_embed)
-
-  bot.loop.create_task(send_to_discord())
-  return jsonify({"success": True, "message": "投稿が完了しました！"})
-
-
-def run_flask():
-  port = int(os.environ.get("PORT", 10000))
-  app.run(host="0.0.0.0", port=port)
-
-
 if __name__ == "__main__":
-  t = Thread(target=run_flask)
-  t.start()
   if BOT_TOKEN:
     bot.run(BOT_TOKEN)
