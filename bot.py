@@ -41,20 +41,21 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 投稿用モーダル ---
+# --- 投稿・返信共通モーダル ---
 class PostModal(discord.ui.Modal):
     def __init__(self, is_anonymous: bool, reply_target: str = None):
         self.is_anonymous = is_anonymous
         self.reply_target = reply_target
         
-        title_text = '📝 投稿フォーム（匿名）' if is_anonymous else '📝 投稿フォーム（公開名）'
         if reply_target:
-            title_text = f'💬 返信フォーム ({reply_target}へ)'
+            title_text = f'💬 返信 ({reply_target}へ)'
+            placeholder_text = f'{reply_target} への返信を入力...'
+        else:
+            title_text = '📝 新規投稿（匿名）' if is_anonymous else '📝 新規投稿（名前表示）'
+            placeholder_text = 'ここにメッセージを入力してください...'
             
         super().__init__(title=title_text)
 
-        placeholder_text = f'{reply_target} への返信を入力...' if reply_target else 'ここにメッセージを入力してください...'
-        
         self.content = discord.ui.TextInput(
             label='メッセージ',
             style=discord.TextStyle.paragraph,
@@ -103,7 +104,7 @@ class PostModal(discord.ui.Modal):
                 icon_url=interaction.user.display_avatar.url
             )
 
-        # 投稿メッセージの下に付属するボタン（返信・通報）を作成
+        # 投稿メッセージの下に付属するボタンを作成
         post_view = PostItemView(post_num=post_count)
         sent_message = await board_channel.send(embed=embed, view=post_view)
 
@@ -126,7 +127,7 @@ class PostModal(discord.ui.Modal):
 # --- 通報用モーダル ---
 class ReportModal(discord.ui.Modal):
     def __init__(self, target_post: str = None):
-        title_text = f'🚨 通報フォーム ({target_post})' if target_post else '🚨 管理者への通報フォーム'
+        title_text = f'🚨 通報 ({target_post})' if target_post else '🚨 管理者への通報フォーム'
         super().__init__(title=title_text)
 
         default_reason = f"{target_post} についての通報: " if target_post else ""
@@ -164,22 +165,33 @@ class ReportModal(discord.ui.Modal):
         await interaction.response.send_message("通報を管理者に送信しました。", ephemeral=True)
 
 
-# --- 送信された個別の投稿にくっつくボタン ---
+# --- 各投稿メッセージの下につくボタン一覧 ---
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
         super().__init__(timeout=None)
         self.post_num = post_num
 
-    @discord.ui.button(label="匿名で返信", style=discord.ButtonStyle.primary, custom_id="item_reply_anon")
+    # 返信ボタン（2つ）
+    @discord.ui.button(label="匿名返信", style=discord.ButtonStyle.primary, custom_id="item_reply_anon")
     async def reply_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         target = f"#{self.post_num}"
         await interaction.response.send_modal(PostModal(is_anonymous=True, reply_target=target))
 
-    @discord.ui.button(label="名前で返信", style=discord.ButtonStyle.secondary, custom_id="item_reply_named")
+    @discord.ui.button(label="名前返信", style=discord.ButtonStyle.secondary, custom_id="item_reply_named")
     async def reply_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         target = f"#{self.post_num}"
         await interaction.response.send_modal(PostModal(is_anonymous=False, reply_target=target))
 
+    # 新規投稿ボタン（2つ）
+    @discord.ui.button(label="匿名投稿", style=discord.ButtonStyle.success, custom_id="item_post_anon")
+    async def post_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(PostModal(is_anonymous=True))
+
+    @discord.ui.button(label="名前投稿", style=discord.ButtonStyle.secondary, custom_id="item_post_named")
+    async def post_named(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(PostModal(is_anonymous=False))
+
+    # 通報ボタン
     @discord.ui.button(label="通報", style=discord.ButtonStyle.danger, custom_id="item_report")
     async def report_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         target = f"#{self.post_num}"
