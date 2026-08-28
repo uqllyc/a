@@ -242,9 +242,9 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="🔹 **匿名**: 名前を隠して投稿\n"
-                    "⚙️ **非匿名**: ユーザー名を表示して投稿\n"
-                    "🚨 **通報**: 違反投稿を通知",
+        description="**匿名**: 名前を隠して投稿\n"
+                    "**非匿名**: ユーザー名を表示して投稿\n"
+                    "**通報**: 違反投稿を通知",
         color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
