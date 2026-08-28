@@ -2,90 +2,114 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>投稿</title>
   <style>
     :root {
-      --bg-color: #313338;
-      --card-bg: #2b2d31;
-      --input-bg: #1e1f22;
-      --text-color: #f2f3f5;
-      --sub-text: #949ba4;
-      --accent-color: #5865f2;
-      --border-color: #3f4147;
+      --bg-color: #000000;         /* 背景：完全な黒 */
+      --card-bg: #111111;         /* カード背景：超暗色 */
+      --input-bg: #181818;        /* 入力欄背景 */
+      --text-color: #ffffff;      /* 文字色：白 */
+      --sub-text: #8e8e93;        /* サブテキスト */
+      --accent-color: #5865f2;    /* Discordブルー */
+      --border-color: #222222;    /* 枠線 */
     }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       background-color: var(--bg-color);
       color: var(--text-color);
       margin: 0;
       padding: 16px;
-      box-sizing: border-box;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
     }
+
     .container {
-      max-width: 500px;
-      margin: 0 auto;
+      width: 100%;
+      max-width: 480px;
     }
+
     .form-group {
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
+
     label {
       display: block;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       margin-bottom: 8px;
       color: var(--sub-text);
+      letter-spacing: -0.2px;
     }
+
     textarea, input[type="text"] {
       width: 100%;
       background-color: var(--input-bg);
       border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 12px;
+      border-radius: 10px;
+      padding: 12px 14px;
       color: var(--text-color);
       font-size: 15px;
-      box-sizing: border-box;
       outline: none;
+      transition: border-color 0.2s;
     }
+
+    textarea:focus, input[type="text"]:focus {
+      border-color: var(--accent-color);
+    }
+
     textarea {
-      height: 120px;
-      resize: vertical;
+      height: 110px;
+      resize: none;
     }
-    /* 匿名・非匿名 切り替えスイッチ/ボタン */
+
+    /* 匿名 / 非匿名 セグメントスイッチ */
     .toggle-group {
       display: flex;
       background-color: var(--input-bg);
       border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 4px;
+      border-radius: 10px;
+      padding: 3px;
       gap: 4px;
     }
+
     .toggle-option {
       flex: 1;
       text-align: center;
-      padding: 10px;
+      padding: 9px;
       font-size: 14px;
       font-weight: 600;
-      border-radius: 6px;
+      border-radius: 7px;
       cursor: pointer;
       user-select: none;
       color: var(--sub-text);
-      transition: background-color 0.2s, color 0.2s;
+      transition: all 0.2s ease;
     }
+
     .toggle-option.active {
       background-color: var(--accent-color);
       color: #ffffff;
     }
-    /* ファイル選択領域 */
+
+    /* ファイル添付領域 */
     .file-input-wrapper {
       position: relative;
       background-color: var(--input-bg);
       border: 1px dashed var(--border-color);
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 16px;
       text-align: center;
       cursor: pointer;
     }
+
     .file-input-wrapper input[type="file"] {
       position: absolute;
       top: 0;
@@ -95,32 +119,42 @@
       opacity: 0;
       cursor: pointer;
     }
+
+    .file-label {
+      font-size: 14px;
+      color: var(--sub-text);
+    }
+
     .file-name {
       margin-top: 8px;
       font-size: 13px;
       color: var(--accent-color);
       word-break: break-all;
     }
+
     button[type="submit"] {
       width: 100%;
       background-color: var(--accent-color);
       color: white;
       border: none;
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 14px;
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 15px;
+      font-weight: 700;
       cursor: pointer;
-      margin-top: 10px;
+      margin-top: 8px;
+      transition: opacity 0.2s;
     }
+
     button[type="submit"]:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
+      opacity: 0.5;
     }
+
     #status-msg {
       margin-top: 12px;
       text-align: center;
-      font-size: 14px;
+      font-size: 13px;
+      font-weight: 500;
     }
   </style>
 </head>
@@ -129,19 +163,16 @@
 <div class="container">
   <form id="postForm" enctype="multipart/form-data">
     
-    <!-- 本文 -->
     <div class="form-group">
-      <label>本文（任意・画像・動画のみの投稿も可）</label>
-      <textarea id="content" name="content" placeholder="本文を入力..."></textarea>
+      <label>本文（任意・画像・動画のみも可）</label>
+      <textarea id="content" name="content" placeholder="投稿内容を入力..."></textarea>
     </div>
 
-    <!-- レス -->
     <div class="form-group">
-      <label>レス（任意）</label>
+      <label>レス先番号（任意）</label>
       <input type="text" id="ref_id" name="ref_id" placeholder="例: 99">
     </div>
 
-    <!-- 投稿方法（タップで切替） -->
     <div class="form-group">
       <label>投稿方法</label>
       <div class="toggle-group">
@@ -151,39 +182,28 @@
       <input type="hidden" id="anonymous" name="anonymous" value="true">
     </div>
 
-    <!-- 画像・動画添付 -->
     <div class="form-group">
-      <label>画像・動画</label>
+      <label>画像・動画添付</label>
       <div class="file-input-wrapper">
-        <span>📁 ファイルを選択（写真・動画）</span>
+        <span class="file-label">📷 タップして写真・動画を選択</span>
         <input type="file" id="file" name="file" accept="image/*,video/*" onchange="showFileName(this)">
       </div>
       <div id="file-name" class="file-name"></div>
     </div>
 
-    <button type="submit" id="submit-btn">送信</button>
+    <button type="submit" id="submit-btn">送信する</button>
     <div id="status-msg"></div>
 
   </form>
 </div>
 
 <script>
-  // 匿名 / 非匿名の切替処理
   function setAnonymous(isAnon) {
     document.getElementById('anonymous').value = isAnon ? "true" : "false";
-    const btnAnon = document.getElementById('btn-anon');
-    const btnReal = document.getElementById('btn-real');
-
-    if (isAnon) {
-      btnAnon.classList.add('active');
-      btnReal.classList.remove('active');
-    } else {
-      btnReal.classList.add('active');
-      btnAnon.classList.remove('active');
-    }
+    document.getElementById('btn-anon').classList.toggle('active', isAnon);
+    document.getElementById('btn-real').classList.toggle('active', !isAnon);
   }
 
-  // ファイル名表示
   function showFileName(input) {
     const display = document.getElementById('file-name');
     if (input.files && input.files[0]) {
@@ -193,7 +213,6 @@
     }
   }
 
-  // 送信処理
   document.getElementById('postForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const btn = document.getElementById('submit-btn');
@@ -201,25 +220,23 @@
 
     btn.disabled = true;
     msg.textContent = '送信中...';
-    msg.style.color = '#949ba4';
-
-    const formData = new FormData(this);
+    msg.style.color = '#8e8e93';
 
     try {
       const response = await fetch('/submit', {
         method: 'POST',
-        body: formData
+        body: new FormData(this)
       });
       const resData = await response.json();
 
       if (response.ok && resData.success) {
-        msg.textContent = '✅ 投稿が完了しました！';
+        msg.textContent = '✅ 投稿しました';
         msg.style.color = '#23a55a';
         document.getElementById('postForm').reset();
         document.getElementById('file-name').textContent = '';
         setAnonymous(true);
       } else {
-        msg.textContent = '❌ ' + (resData.message || '送信に失敗しました');
+        msg.textContent = '❌ ' + (resData.message || 'エラーが発生しました');
         msg.style.color = '#f23f43';
       }
     } catch (err) {
