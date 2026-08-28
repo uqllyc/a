@@ -50,9 +50,9 @@ async def start_attachment_post(interaction: discord.Interaction, is_anonymous: 
     type_str = "匿名" if is_anonymous else "非匿名"
     
     msg = (
-        f"で投稿するよ {target_str}**\n\n"
+        f"匿名で投稿するよ {target_str}**\n\n"
         f"メッセージや画像をこのチャンネルに入力・送信してください。\n"
-        f"*(送信したら元メッセージは自動で消えて掲示板に載ります)*"
+        f"*送信したら元メッセージは自動で消えて掲示板に載ります*"
     )
     
     # メッセージを送信し、オブジェクトを取得
