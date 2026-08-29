@@ -1,7 +1,10 @@
+```html
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
@@ -10,7 +13,6 @@
     <title>掲示板に投稿</title>
 
     <style>
-
         * {
             box-sizing: border-box;
         }
@@ -19,6 +21,7 @@
             margin: 0;
             min-height: 100vh;
             background: #f2f3f5;
+
             font-family:
                 -apple-system,
                 BlinkMacSystemFont,
@@ -81,7 +84,6 @@
 
         .file-button {
             display: block;
-
             width: 100%;
             padding: 15px;
 
@@ -149,10 +151,8 @@
             text-align: center;
             font-size: 14px;
         }
-
     </style>
 </head>
-
 
 <body>
 
@@ -171,13 +171,11 @@
             投稿モードを確認中...
         </div>
 
-
         <textarea
             id="content"
             placeholder="メッセージを入力..."
             maxlength="2000"
         ></textarea>
-
 
         <div class="file-area">
 
@@ -196,9 +194,7 @@
 
         </div>
 
-
         <div id="preview"></div>
-
 
         <button
             class="post-button"
@@ -207,179 +203,18 @@
             📤 投稿する
         </button>
 
-
         <div id="status"></div>
 
     </div>
 
 </div>
 
+<script src="/static/post.js"></script>
 
-<script>
+</body>
 
-    // ======================================
-    // 匿名 / 非匿名
-    // ======================================
-
-    const params =
-        new URLSearchParams(
-            window.location.search
-        );
-
-    const isAnonymous =
-        params.get("anonymous") === "true";
-
-
-    const modeText =
-        document.getElementById(
-            "modeText"
-        );
-
-
-    if (isAnonymous) {
-
-        modeText.textContent =
-            "🔒 匿名投稿";
-
-    } else {
-
-        modeText.textContent =
-            "👤 非匿名投稿";
-
-    }
-
-
-    // ======================================
-    // ファイル選択
-    // ======================================
-
-    const fileInput =
-        document.getElementById(
-            "fileInput"
-        );
-
-    const preview =
-        document.getElementById(
-            "preview"
-        );
-
-
-    fileInput.addEventListener(
-        "change",
-        function () {
-
-            preview.innerHTML = "";
-
-            const file =
-                this.files[0];
-
-            if (!file) {
-                return;
-            }
-
-
-            // 画像
-            if (
-                file.type.startsWith(
-                    "image/"
-                )
-            ) {
-
-                const img =
-                    document.createElement(
-                        "img"
-                    );
-
-                img.src =
-                    URL.createObjectURL(
-                        file
-                    );
-
-                preview.appendChild(
-                    img
-                );
-
-            }
-
-
-            // 動画
-            else if (
-                file.type.startsWith(
-                    "video/"
-                )
-            ) {
-
-                const video =
-                    document.createElement(
-                        "video"
-                    );
-
-                video.src =
-                    URL.createObjectURL(
-                        file
-                    );
-
-                video.controls = true;
-
-                preview.appendChild(
-                    video
-                );
-
-            }
-
-        }
-    );
-
-
-    // ======================================
-    // 投稿
-    // ======================================
-
-    const postButton =
-        document.getElementById(
-            "postButton"
-        );
-
-    const status =
-        document.getElementById(
-            "status"
-        );
-
-
-    postButton.addEventListener(
-        "click",
-        async function () {
-
-            const content =
-                document
-                    .getElementById(
-                        "content"
-                    )
-                    .value
-                    .trim();
-
-
-            const file =
-                fileInput.files[0];
-
-
-            if (
-                !content &&
-                !file
-            ) {
-
-                status.textContent =
-                    "本文または画像・動画を入力してください。";
-
-                return;
-            }
-
-
-            postButton.disabled =
-                true;
-
-            status.textContent =
-                "投稿しています...";
+</html>
+```
 
 
             const formData =
