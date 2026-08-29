@@ -100,11 +100,11 @@ class PanelView(discord.ui.View):
     async def cb_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TextPostModal(is_anonymous=False))
 
-    @discord.ui.button(label="匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
+    @discord.ui.button(label="匿名メディア", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
     async def cb_img_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         await prompt_image_upload(interaction, is_anonymous=True)
 
-    @discord.ui.button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
+    @discord.ui.button(label="非匿名メディア", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
     async def cb_img_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await prompt_image_upload(interaction, is_anonymous=False)
 
@@ -126,13 +126,13 @@ class PostItemView(discord.ui.View):
         btn_named.callback = cb_named
         self.add_item(btn_named)
 
-        btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_anon{target_id}", row=0)
+        btn_img_anon = discord.ui.Button(label="匿名メディア", style=discord.ButtonStyle.success, custom_id=f"btn_img_anon{target_id}", row=0)
         async def cb_img_anon(interaction: discord.Interaction):
             await prompt_image_upload(interaction, is_anonymous=True)
         btn_img_anon.callback = cb_img_anon
         self.add_item(btn_img_anon)
 
-        btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_named{target_id}", row=0)
+        btn_img_named = discord.ui.Button(label="非匿名メディア", style=discord.ButtonStyle.success, custom_id=f"btn_img_named{target_id}", row=0)
         async def cb_img_named(interaction: discord.Interaction):
             await prompt_image_upload(interaction, is_anonymous=False)
         btn_img_named.callback = cb_img_named
@@ -186,7 +186,7 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     post_count += 1
     now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 
-    raw_text = content if content else "（画像のみ）"
+    raw_text = content if content else "（メディア投稿）"
     body_text = f"> **{reply_target} への返信**\n" + raw_text if reply_target else raw_text
     author_name = "匿名" if is_anonymous else interaction.user.display_name
 
@@ -201,7 +201,14 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     post_view = PostItemView(post_num=post_count)
     
     if files:
-        sent_msg = await board_channel.send(embed=embed, files=files, view=post_view)
+        board_files = files
+        log_files = []
+        if log_channel:
+            for f in files:
+                f.fp.seek(0)
+                log_files.append(discord.File(f.fp, filename=f.filename))
+
+        sent_msg = await board_channel.send(embed=embed, files=board_files, view=post_view)
     else:
         sent_msg = await board_channel.send(embed=embed, view=post_view)
 
@@ -219,11 +226,14 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
             log_embed.add_field(name="💬 返信先", value=reply_target, inline=True)
             
         has_file = "あり" if files else "なし"
-        log_embed.add_field(name="🖼️ 画像添付", value=has_file, inline=True)
+        log_embed.add_field(name="🖼️ メディア添付", value=has_file, inline=True)
         log_embed.add_field(name="⏰ 投稿時間", value=now_jst, inline=True)
         log_embed.add_field(name="🔗 メッセージリンク", value=sent_msg.jump_url, inline=False)
         
-        await log_channel.send(embed=log_embed)
+        if files:
+            await log_channel.send(embed=log_embed, files=log_files)
+        else:
+            await log_channel.send(embed=log_embed)
 
     if not interaction.response.is_done():
         await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
@@ -237,9 +247,9 @@ async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bo
     target_str = f"（{reply_target} 宛て）" if reply_target else ""
     
     await interaction.response.send_message(
-        f"📷 **【{anon_str}画像投稿{target_str}】**\n"
-        f"このチャンネルに画像をそのまま送信してください。\n"
-        f"※送信後に投稿メッセージは自動削除され、掲示板へ反映されます。",
+        f"📷 **【{anon_str}メディア投稿{target_str}】**\n"
+        f"このチャンネルに画像または動画をそのまま送信してください。\n"
+        f"※送信後に元のメッセージは自動削除され、掲示板へ反映されます。",
         ephemeral=True
     )
 
@@ -279,6 +289,7 @@ async def on_message(message: discord.Message):
                 pass
             return
 
+        # ボタンを押さずに直接送信されたものは一切メッセージを残さず即時削除
         try:
             await delete_task
         except Exception:
@@ -300,8 +311,8 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="匿名 非匿名で投稿?!\n"
-                    "画像投稿時は「匿名画像」または「非匿名画像」を押した後に画像をチャットへ送信します。",
+        description="匿名・非匿名で投稿可能です。\n"
+                    "画像や動画の投稿は「匿名メディア」または「非匿名メディア」を押した後にチャットへ送信してください。",
         color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
