@@ -1,14 +1,23 @@
-const fileInput = document.getElementById("file");
+const fileInput = document.getElementById("fileInput");
 const preview = document.getElementById("preview");
-const submit = document.getElementById("submit");
+const submit = document.getElementById("postButton");
 const content = document.getElementById("content");
 const statusText = document.getElementById("status");
 
+// 匿名 / 非匿名
+const params = new URLSearchParams(window.location.search);
+const isAnonymous = params.get("anonymous") === "true";
 
-// ==========================================
-// 画像・動画を選択したときのプレビュー
-// ==========================================
+// モード表示
+const modeText = document.getElementById("modeText");
 
+if (isAnonymous) {
+    modeText.textContent = "🔒 匿名投稿";
+} else {
+    modeText.textContent = "👤 非匿名投稿";
+}
+
+// 画像・動画プレビュー
 fileInput.addEventListener("change", () => {
 
     preview.innerHTML = "";
@@ -21,8 +30,6 @@ fileInput.addEventListener("change", () => {
 
     const url = URL.createObjectURL(file);
 
-
-    // 画像
     if (file.type.startsWith("image/")) {
 
         const img = document.createElement("img");
@@ -30,11 +37,8 @@ fileInput.addEventListener("change", () => {
         img.src = url;
 
         preview.appendChild(img);
-    }
 
-
-    // 動画
-    else if (file.type.startsWith("video/")) {
+    } else if (file.type.startsWith("video/")) {
 
         const video = document.createElement("video");
 
@@ -43,21 +47,14 @@ fileInput.addEventListener("change", () => {
 
         preview.appendChild(video);
     }
-
 });
 
-
-// ==========================================
-// 投稿ボタン
-// ==========================================
-
+// 投稿
 submit.addEventListener("click", async () => {
 
     const text = content.value.trim();
     const file = fileInput.files[0];
 
-
-    // 本文もファイルもない
     if (!text && !file) {
 
         statusText.textContent =
@@ -66,12 +63,10 @@ submit.addEventListener("click", async () => {
         return;
     }
 
-
     submit.disabled = true;
 
     statusText.textContent =
         "投稿しています...";
-
 
     const formData = new FormData();
 
@@ -80,6 +75,10 @@ submit.addEventListener("click", async () => {
         text
     );
 
+    formData.append(
+        "anonymous",
+        isAnonymous ? "true" : "false"
+    );
 
     if (file) {
 
@@ -87,9 +86,7 @@ submit.addEventListener("click", async () => {
             "file",
             file
         );
-
     }
-
 
     try {
 
@@ -101,10 +98,7 @@ submit.addEventListener("click", async () => {
             }
         );
 
-
-        const result =
-            await response.json();
-
+        const result = await response.json();
 
         if (!response.ok) {
 
@@ -112,13 +106,10 @@ submit.addEventListener("click", async () => {
                 result.error ||
                 "投稿に失敗しました"
             );
-
         }
 
-
         statusText.textContent =
-            "投稿しました！";
-
+            "✅ 投稿しました！";
 
         content.value = "";
 
@@ -126,18 +117,14 @@ submit.addEventListener("click", async () => {
 
         preview.innerHTML = "";
 
-
     } catch (error) {
 
         statusText.textContent =
-            "エラー: " +
+            "❌ エラー: " +
             error.message;
-
 
     } finally {
 
         submit.disabled = false;
-
     }
-
 });
