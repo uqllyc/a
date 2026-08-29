@@ -1,4 +1,5 @@
 import os
+import io
 import threading
 from datetime import datetime, timezone, timedelta
 from flask import Flask
@@ -199,7 +200,6 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
 
     post_view = PostItemView(post_num=post_count)
     
-    # 送信用のファイル群をメッセージとして添付
     if files:
         sent_msg = await board_channel.send(embed=embed, files=files, view=post_view)
     else:
@@ -254,12 +254,19 @@ async def on_message(message: discord.Message):
         if user_id in pending_image_users:
             config = pending_image_users.pop(user_id)
             
-            # メッセージが消える前にバイトデータから直接discord.File化（0バイトエラーを回避）
+            # 1. 投稿データを先にメモリへ読み込む
             files = []
             for attachment in message.attachments:
                 file_bytes = await attachment.read()
                 files.append(discord.File(fp=io.BytesIO(file_bytes), filename=attachment.filename))
 
+            # 2. 【重要】元のチャットメッセージを「最優先で削除」
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            # 3. 掲示板へ送信
             fake_interaction = type('obj', (object,), {
                 'user': message.author,
                 'response': type('obj', (object,), {'is_done': lambda: True})()
@@ -272,13 +279,9 @@ async def on_message(message: discord.Message):
                 reply_target=config["reply_target"],
                 files=files
             )
-            
-            try:
-                await message.delete()
-            except Exception:
-                pass
             return
 
+        # 待機中ユーザー以外の一般書き込みは即削除
         try:
             await message.delete()
         except Exception:
@@ -286,8 +289,6 @@ async def on_message(message: discord.Message):
         return
 
     await bot.process_commands(message)
-
-import io # BytesIO 用モジュールインポート
 
 @bot.event
 async def on_ready():
