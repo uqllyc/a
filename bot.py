@@ -1,6 +1,5 @@
 import os
 import threading
-import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask
 import discord
@@ -51,8 +50,6 @@ class TextPostModal(discord.ui.Modal):
         self.add_item(self.content_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # メッセージを出さずに内部応答のみ行ってタイムアウトを防止
-        await interaction.response.defer(ephemeral=True)
         await send_board_post(
             interaction=interaction,
             content=self.content_input.value,
@@ -78,9 +75,9 @@ class ReportModal(discord.ui.Modal):
         self.add_item(self.report_reason)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
         if not log_channel:
+            await interaction.response.send_message("エラー: LOG_CHANNEL_IDが設定されていません。", ephemeral=True)
             return
 
         now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
@@ -89,6 +86,7 @@ class ReportModal(discord.ui.Modal):
         report_embed.add_field(name="通報日時", value=now_jst)
 
         await log_channel.send(embed=report_embed)
+        await interaction.response.send_message("通報を送信しました。", ephemeral=True)
 
 class PanelView(discord.ui.View):
     def __init__(self):
@@ -102,11 +100,11 @@ class PanelView(discord.ui.View):
     async def cb_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TextPostModal(is_anonymous=False))
 
-    @discord.ui.button(label="匿名メディア", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
+    @discord.ui.button(label="匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
     async def cb_img_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
         await prompt_image_upload(interaction, is_anonymous=True)
 
-    @discord.ui.button(label="非匿名メディア", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
+    @discord.ui.button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
     async def cb_img_named(self, interaction: discord.Interaction, button: discord.ui.Button):
         await prompt_image_upload(interaction, is_anonymous=False)
 
@@ -128,13 +126,13 @@ class PostItemView(discord.ui.View):
         btn_named.callback = cb_named
         self.add_item(btn_named)
 
-        btn_img_anon = discord.ui.Button(label="匿名メディア", style=discord.ButtonStyle.success, custom_id=f"btn_img_anon{target_id}", row=0)
+        btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_anon{target_id}", row=0)
         async def cb_img_anon(interaction: discord.Interaction):
             await prompt_image_upload(interaction, is_anonymous=True)
         btn_img_anon.callback = cb_img_anon
         self.add_item(btn_img_anon)
 
-        btn_img_named = discord.ui.Button(label="非匿名メディア", style=discord.ButtonStyle.success, custom_id=f"btn_img_named{target_id}", row=0)
+        btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_named{target_id}", row=0)
         async def cb_img_named(interaction: discord.Interaction):
             await prompt_image_upload(interaction, is_anonymous=False)
         btn_img_named.callback = cb_img_named
@@ -163,7 +161,7 @@ class PostItemView(discord.ui.View):
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
 BOARD_CHANNEL_ID = 1543316045786386493
-LOG_CHANNEL_ID = 1543053996950945844
+LOG_CHANNEL_ID = 1543231098937413642
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -174,12 +172,14 @@ class CustomBot(commands.Bot):
 
 bot = CustomBot(command_prefix="!", intents=intents)
 
-async def send_board_post(interaction: discord.Interaction, content: str, is_anonymous: bool, reply_target: str = None, media_urls: list = None):
+async def send_board_post(interaction: discord.Interaction, content: str, is_anonymous: bool, reply_target: str = None, files: list = None):
     global post_count
     board_channel = bot.get_channel(BOARD_CHANNEL_ID)
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
     if not board_channel:
+        if not interaction.response.is_done():
+            await interaction.response.send_message("エラー: BOARD_CHANNEL_IDが設定されていません。", ephemeral=True)
         return
 
     post_count += 1
@@ -187,11 +187,6 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
 
     raw_text = content if content else "（メディア投稿）"
     body_text = f"> **{reply_target} への返信**\n" + raw_text if reply_target else raw_text
-    
-    if media_urls:
-        urls_str = "\n".join(media_urls)
-        body_text += f"\n{urls_str}"
-
     author_name = "匿名" if is_anonymous else interaction.user.display_name
 
     embed = discord.Embed(description=body_text, color=0x000000)
@@ -203,12 +198,17 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
         embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
 
     post_view = PostItemView(post_num=post_count)
-    sent_msg = await board_channel.send(embed=embed, view=post_view)
+    
+    # 送信用のファイル群をメッセージとして添付
+    if files:
+        sent_msg = await board_channel.send(embed=embed, files=files, view=post_view)
+    else:
+        sent_msg = await board_channel.send(embed=embed, view=post_view)
 
     if log_channel:
         log_embed = discord.Embed(
             title=f"📋 【投稿ログ #{post_count}】",
-            description=body_text,
+            description=raw_text,
             color=0x2b2d31
         )
         user_info = f"{interaction.user.mention}\n**名前:** {interaction.user.name}\n**ID:** `{interaction.user.id}`"
@@ -218,12 +218,15 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
         if reply_target:
             log_embed.add_field(name="💬 返信先", value=reply_target, inline=True)
             
-        has_file = "あり" if media_urls else "なし"
+        has_file = "あり" if files else "なし"
         log_embed.add_field(name="🖼️ メディア添付", value=has_file, inline=True)
         log_embed.add_field(name="⏰ 投稿時間", value=now_jst, inline=True)
         log_embed.add_field(name="🔗 メッセージリンク", value=sent_msg.jump_url, inline=False)
         
         await log_channel.send(embed=log_embed)
+
+    if not interaction.response.is_done():
+        await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
 
 async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
     pending_image_users[interaction.user.id] = {
@@ -234,9 +237,9 @@ async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bo
     target_str = f"（{reply_target} 宛て）" if reply_target else ""
     
     await interaction.response.send_message(
-        f"📷 **【{anon_str}メディア投稿{target_str}】**\n"
+        f"📷 **【{anon_str}画像・動画投稿{target_str}】**\n"
         f"このチャンネルに画像または動画をそのまま送信してください。\n"
-        f"※送信後に元のメッセージは自動削除され、掲示板へ反映されます。",
+        f"※送信後に投稿メッセージは自動削除され、掲示板へ反映されます。",
         ephemeral=True
     )
 
@@ -250,10 +253,16 @@ async def on_message(message: discord.Message):
 
         if user_id in pending_image_users:
             config = pending_image_users.pop(user_id)
-            media_urls = [att.url for att in message.attachments]
+            
+            # メッセージが消える前にバイトデータから直接discord.File化（0バイトエラーを回避）
+            files = []
+            for attachment in message.attachments:
+                file_bytes = await attachment.read()
+                files.append(discord.File(fp=io.BytesIO(file_bytes), filename=attachment.filename))
 
             fake_interaction = type('obj', (object,), {
-                'user': message.author
+                'user': message.author,
+                'response': type('obj', (object,), {'is_done': lambda: True})()
             })()
 
             await send_board_post(
@@ -261,7 +270,7 @@ async def on_message(message: discord.Message):
                 content=message.content,
                 is_anonymous=config["is_anonymous"],
                 reply_target=config["reply_target"],
-                media_urls=media_urls
+                files=files
             )
             
             try:
@@ -278,6 +287,8 @@ async def on_message(message: discord.Message):
 
     await bot.process_commands(message)
 
+import io # BytesIO 用モジュールインポート
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
@@ -291,8 +302,8 @@ async def on_ready():
 async def setup_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📝 掲示板",
-        description="匿名・非匿名で投稿可能です。\n"
-                    "画像や動画の投稿は「匿名メディア」または「非匿名メディア」を押した後にチャットへ送信してください。",
+        description="匿名 非匿名で投稿?!\n"
+                    "画像投稿時は「匿名画像」または「非匿名画像」を押した後に画像をチャットへ送信します。",
         color=0x000000
     )
     await interaction.channel.send(embed=embed, view=PanelView())
