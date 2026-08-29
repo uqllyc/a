@@ -3,6 +3,7 @@ import threading
 from datetime import datetime, timezone, timedelta
 from flask import Flask
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 JST = timezone(timedelta(hours=+9))
@@ -263,7 +264,6 @@ async def on_message(message: discord.Message):
         return
 
     if message.channel.id == BOARD_CHANNEL_ID:
-        # ★一番最初に削除リクエストを発行して超高速で消す★
         delete_task = bot.loop.create_task(message.delete())
 
         user_id = message.author.id
@@ -271,7 +271,6 @@ async def on_message(message: discord.Message):
         if user_id in pending_image_users:
             config = pending_image_users.pop(user_id)
             
-            # 画像データの抽出（バックグラウンド処理）
             files = []
             for attachment in message.attachments:
                 file_data = await attachment.to_file()
@@ -296,7 +295,6 @@ async def on_message(message: discord.Message):
                 pass
             return
 
-        # 誤投稿（そのまま文字を入力しただけ）の場合も削除完了を待機して処理を終了
         try:
             await delete_task
         except Exception:
@@ -327,6 +325,33 @@ async def setup_panel(interaction: discord.Interaction):
     )
     await interaction.channel.send(embed=embed, view=PanelView())
     await interaction.response.send_message("パネルを設置しました。", ephemeral=True)
+
+# --- 追加: チャンネル全削除 (nuke) コマンド ---
+@bot.tree.command(name="nuke", description="実行したチャンネルのメッセージをすべて消去して再作成します")
+@app_commands.checks.has_permissions(administrator=True)
+async def nuke(interaction: discord.Interaction):
+    channel = interaction.channel
+    position = channel.position
+    
+    await interaction.response.send_message("💣 チャンネルをリセットしています...", ephemeral=True)
+    
+    # チャンネルを複製して旧チャンネルを削除
+    new_channel = await channel.clone(reason="Nuke command executed")
+    await new_channel.edit(position=position)
+    await channel.delete(reason="Nuke command executed")
+    
+    # 完了メッセージ送信
+    embed = discord.Embed(
+        title="💥 Nuke 完了",
+        description="このチャンネルの全メッセージが消去されました。",
+        color=0xff0000
+    )
+    await new_channel.send(embed=embed)
+
+@nuke.error
+async def nuke_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message("❌ このコマンドを実行するには「管理者権限」が必要です。", ephemeral=True)
 
 if __name__ == "__main__":
     if TOKEN:
