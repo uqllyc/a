@@ -9,7 +9,6 @@ from discord.ext import commands
 
 JST = timezone(timedelta(hours=+9))
 post_count = 0
-pending_image_users = {}
 
 # ==========================================
 # 1. Webサーバー (Render用)
@@ -103,11 +102,11 @@ class PanelView(discord.ui.View):
 
     @discord.ui.button(label="匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
     async def cb_img_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await prompt_image_upload(interaction, is_anonymous=True)
+        await create_private_upload_thread(interaction, is_anonymous=True)
 
     @discord.ui.button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
     async def cb_img_named(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await prompt_image_upload(interaction, is_anonymous=False)
+        await create_private_upload_thread(interaction, is_anonymous=False)
 
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
@@ -129,13 +128,13 @@ class PostItemView(discord.ui.View):
 
         btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_anon{target_id}", row=0)
         async def cb_img_anon(interaction: discord.Interaction):
-            await prompt_image_upload(interaction, is_anonymous=True)
+            await create_private_upload_thread(interaction, is_anonymous=True, reply_target=reply_str)
         btn_img_anon.callback = cb_img_anon
         self.add_item(btn_img_anon)
 
         btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id=f"btn_img_named{target_id}", row=0)
         async def cb_img_named(interaction: discord.Interaction):
-            await prompt_image_upload(interaction, is_anonymous=False)
+            await create_private_upload_thread(interaction, is_anonymous=False, reply_target=reply_str)
         btn_img_named.callback = cb_img_named
         self.add_item(btn_img_named)
 
@@ -228,62 +227,83 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     if not interaction.response.is_done():
         await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
 
-async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
-    pending_image_users[interaction.user.id] = {
-        "is_anonymous": is_anonymous,
-        "reply_target": reply_target
-    }
+# プライベートスレッドを作成してアップロード場所を提供する処理
+async def create_private_upload_thread(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
+    channel = interaction.channel
     anon_str = "匿名" if is_anonymous else "非匿名"
     target_str = f"（{reply_target} 宛て）" if reply_target else ""
+
+    # プライベートスレッドを作成（管理者と本人のみにしか見えない）
+    thread = await channel.create_thread(
+        name=f"🔒-{anon_str}-メディアアップロード-{interaction.user.name}",
+        type=discord.ChannelType.private_thread,
+        auto_archive_duration=60,
+        invitable=False
+    )
     
-    await interaction.response.send_message(
+    # 送信者をスレッドに追加
+    await thread.add_user(interaction.user)
+
+    # システム変数としてスレッド内に情報を保持（名前フォーマット等）
+    target_tag = f"R:{reply_target}" if reply_target else "R:NONE"
+    await thread.send(f"__SYS_CONFIG__ | A:{is_anonymous} | {target_tag} | U:{interaction.user.id}", delete_after=0)
+
+    await thread.send(
         f"📷 **【{anon_str}画像・動画投稿{target_str}】**\n"
-        f"このチャンネルに画像または動画をそのまま送信してください。\n"
-        f"※送信後に投稿メッセージは自動削除され、掲示板へ反映されます。",
+        f"{interaction.user.mention} ここに画像や動画を送信してください。\n"
+        f"※送信完了後、**この部屋は自動的に削除**されますので他人にバレる心配はありません。"
+    )
+
+    await interaction.response.send_message(
+        f"🔒 あなた専用の送信部屋を作成しました！ {thread.mention} から動画・画像を送信してください。",
         ephemeral=True
     )
 
+# スレッド内のメッセージを監視して掲示板に転送＆削除
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    if message.channel.id == BOARD_CHANNEL_ID:
-        user_id = message.author.id
+    # メッセージがプライベートスレッド内で送信された場合
+    if isinstance(message.channel, discord.Thread) and message.channel.name.startswith("🔒-"):
+        thread = message.channel
 
-        if user_id in pending_image_users:
-            config = pending_image_users.pop(user_id)
-            
-            # 1. 投稿データを先にメモリへ読み込む
-            files = []
-            for attachment in message.attachments:
-                file_bytes = await attachment.read()
-                files.append(discord.File(fp=io.BytesIO(file_bytes), filename=attachment.filename))
+        # スレッド内の設定用システムメッセージ等を特定するため、メッセージ履歴を取得
+        is_anonymous = True
+        reply_target = None
+        
+        async for history_msg in thread.history(limit=10, oldest_first=True):
+            if "__SYS_CONFIG__" in history_msg.content:
+                parts = history_msg.content.split(" | ")
+                is_anonymous = (parts[1].split(":")[1] == "True")
+                target_val = parts[2].split(":")[1]
+                reply_target = target_val if target_val != "NONE" else None
+                break
 
-            # 2. 【重要】元のチャットメッセージを「最優先で削除」
-            try:
-                await message.delete()
-            except Exception:
-                pass
+        # メディアのファイルを準備
+        files = []
+        for attachment in message.attachments:
+            file_bytes = await attachment.read()
+            files.append(discord.File(fp=io.BytesIO(file_bytes), filename=attachment.filename))
 
-            # 3. 掲示板へ送信
-            fake_interaction = type('obj', (object,), {
-                'user': message.author,
-                'response': type('obj', (object,), {'is_done': lambda: True})()
-            })()
+        fake_interaction = type('obj', (object,), {
+            'user': message.author,
+            'response': type('obj', (object,), {'is_done': lambda: True})()
+        })()
 
-            await send_board_post(
-                interaction=fake_interaction,
-                content=message.content,
-                is_anonymous=config["is_anonymous"],
-                reply_target=config["reply_target"],
-                files=files
-            )
-            return
+        # 掲示板へ投稿
+        await send_board_post(
+            interaction=fake_interaction,
+            content=message.content,
+            is_anonymous=is_anonymous,
+            reply_target=reply_target,
+            files=files
+        )
 
-        # 待機中ユーザー以外の一般書き込みは即削除
+        # 処理が終わったら専用部屋（スレッド）を消去
         try:
-            await message.delete()
+            await thread.delete()
         except Exception:
             pass
         return
