@@ -14,7 +14,7 @@ post_count = 0
 
 
 # ==========================================
-# 1. Webサーバー (Render用)
+# Webサーバー
 # ==========================================
 
 app = Flask(__name__)
@@ -42,25 +42,222 @@ def api_post():
         ''
     ).strip()
 
+    anonymous = (
+        request.form.get(
+            'anonymous',
+            'true'
+        ) == 'true'
+    )
+
     file = request.files.get(
         'file'
     )
 
+
     if not content and not file:
+
         return jsonify({
             "error": "本文または画像・動画を入力してください。"
         }), 400
 
+
+    print("================================")
     print("Web投稿を受信しました")
     print("本文:", content)
+    print("匿名:", anonymous)
+
 
     if file:
-        print("ファイル:", file.filename)
 
-    return jsonify({
-        "message": "受信しました"
-    })
+        print(
+            "ファイル:",
+            file.filename
+        )
 
+
+    # Discord Botが起動していなければ投稿できない
+    if not bot.is_ready():
+
+        return jsonify({
+            "error": "Botが起動していません。"
+        }), 503
+
+
+    # Discordへ投稿する処理
+    try:
+
+        future = asyncio.run_coroutine_threadsafe(
+            send_web_post(
+                content=content,
+                anonymous=anonymous,
+                file=file
+            ),
+            bot.loop
+        )
+
+        result = future.result(
+            timeout=30
+        )
+
+
+        return jsonify({
+            "message": "投稿しました！",
+            "post_number": result
+        })
+
+
+    except Exception as e:
+
+        print(
+            "投稿エラー:",
+            repr(e)
+        )
+
+        return jsonify({
+            "error": "Discordへの投稿に失敗しました。"
+        }), 500
+
+
+# ==========================================
+# Web投稿をDiscordへ送る
+# ==========================================
+
+async def send_web_post(
+    content,
+    anonymous,
+    file
+):
+
+    global post_count
+
+
+    board_channel = bot.get_channel(
+        BOARD_CHANNEL_ID
+    )
+
+
+    if not board_channel:
+
+        raise Exception(
+            "BOARD_CHANNEL_IDが見つかりません"
+        )
+
+
+    post_count += 1
+
+
+    now_jst = datetime.now(
+        JST
+    ).strftime(
+        "%Y/%m/%d %H:%M"
+    )
+
+
+    # ======================================
+    # 表示名
+    # ======================================
+
+    if anonymous:
+
+        author_name = "匿名"
+
+    else:
+
+        # 現段階ではWebからDiscordユーザーを
+        # 特定できないため「Web投稿者」と表示
+        author_name = "Web投稿者"
+
+
+    header_text = (
+        f"#{post_count} | "
+        f"{author_name} | "
+        f"{now_jst}"
+    )
+
+
+    # ======================================
+    # Embed
+    # ======================================
+
+    embed = discord.Embed(
+        description=content
+        if content
+        else None,
+        color=0x000000
+    )
+
+
+    # 匿名はアイコンなし
+    if anonymous:
+
+        embed.set_author(
+            name=header_text
+        )
+
+    else:
+
+        embed.set_author(
+            name=header_text
+        )
+
+
+    # ======================================
+    # ファイル
+    # ======================================
+
+    discord_file = None
+
+
+    if file:
+
+        file_bytes = file.read()
+
+
+        # Discordの添付ファイルとして送信
+        discord_file = discord.File(
+            fp=__import__('io').BytesIO(
+                file_bytes
+            ),
+            filename=file.filename
+        )
+
+
+    # ======================================
+    # 投稿
+    # ======================================
+
+    if discord_file:
+
+        sent_msg = await board_channel.send(
+            embed=embed,
+            file=discord_file,
+            view=PostItemView(
+                post_num=post_count
+            )
+        )
+
+    else:
+
+        sent_msg = await board_channel.send(
+            embed=embed,
+            view=PostItemView(
+                post_num=post_count
+            )
+        )
+
+
+    print(
+        "Discordへ投稿しました:",
+        sent_msg.jump_url
+    )
+
+
+    return post_count
+
+
+# ==========================================
+# Webサーバー起動
+# ==========================================
 
 def run_web():
 
@@ -88,7 +285,7 @@ def keep_alive():
 
 
 # ==========================================
-# 2. UIコンポーネント
+# UI
 # ==========================================
 
 class TextPostModal(discord.ui.Modal):
@@ -145,7 +342,7 @@ class TextPostModal(discord.ui.Modal):
 
 
 # ==========================================
-# 通報Modal
+# 通報
 # ==========================================
 
 class ReportModal(discord.ui.Modal):
@@ -193,6 +390,7 @@ class ReportModal(discord.ui.Modal):
         log_channel = bot.get_channel(
             LOG_CHANNEL_ID
         )
+
 
         if not log_channel:
 
@@ -258,10 +456,7 @@ class PanelView(discord.ui.View):
         )
 
 
-        # ==================================
-        # 匿名投稿
-        # ==================================
-
+        # 匿名
         self.add_item(
             discord.ui.Button(
                 label="匿名",
@@ -274,10 +469,7 @@ class PanelView(discord.ui.View):
         )
 
 
-        # ==================================
-        # 非匿名投稿
-        # ==================================
-
+        # 非匿名
         self.add_item(
             discord.ui.Button(
                 label="非匿名",
@@ -291,7 +483,7 @@ class PanelView(discord.ui.View):
 
 
 # ==========================================
-# 投稿ごとのボタン
+# 投稿ボタン
 # ==========================================
 
 class PostItemView(discord.ui.View):
@@ -305,14 +497,12 @@ class PostItemView(discord.ui.View):
             timeout=None
         )
 
+
         target_id = f"_{post_num}"
         reply_str = f"#{post_num}"
 
 
-        # ----------------------------------
         # 匿名
-        # ----------------------------------
-
         btn_anon = discord.ui.Button(
             label="匿名",
             style=discord.ButtonStyle.primary,
@@ -339,10 +529,7 @@ class PostItemView(discord.ui.View):
         )
 
 
-        # ----------------------------------
         # 非匿名
-        # ----------------------------------
-
         btn_named = discord.ui.Button(
             label="非匿名",
             style=discord.ButtonStyle.primary,
@@ -369,10 +556,7 @@ class PostItemView(discord.ui.View):
         )
 
 
-        # ----------------------------------
         # 匿名返信
-        # ----------------------------------
-
         btn_reply_anon = discord.ui.Button(
             label="匿名返信",
             style=discord.ButtonStyle.secondary,
@@ -400,10 +584,7 @@ class PostItemView(discord.ui.View):
         )
 
 
-        # ----------------------------------
         # 非匿名返信
-        # ----------------------------------
-
         btn_reply_named = discord.ui.Button(
             label="非匿名返信",
             style=discord.ButtonStyle.secondary,
@@ -431,10 +612,7 @@ class PostItemView(discord.ui.View):
         )
 
 
-        # ----------------------------------
         # 通報
-        # ----------------------------------
-
         btn_report = discord.ui.Button(
             label="通報",
             style=discord.ButtonStyle.danger,
@@ -462,7 +640,7 @@ class PostItemView(discord.ui.View):
 
 
 # ==========================================
-# 3. Bot本体
+# Bot
 # ==========================================
 
 TOKEN = os.environ.get(
@@ -495,7 +673,7 @@ bot = CustomBot(
 
 
 # ==========================================
-# Discord掲示板へ投稿
+# Discord通常投稿
 # ==========================================
 
 async def send_board_post(
@@ -551,10 +729,6 @@ async def send_board_post(
         body_text = content
 
 
-    # ======================================
-    # 匿名なら匿名だけ・アイコンなし
-    # ======================================
-
     if is_anonymous:
 
         author_name = "匿名"
@@ -593,20 +767,13 @@ async def send_board_post(
         )
 
 
-    post_view = PostItemView(
-        post_num=post_count
-    )
-
-
     sent_msg = await board_channel.send(
         embed=embed,
-        view=post_view
+        view=PostItemView(
+            post_num=post_count
+        )
     )
 
-
-    # ======================================
-    # 投稿ログ
-    # ======================================
 
     if log_channel:
 
@@ -679,7 +846,7 @@ async def send_board_post(
 
 
 # ==========================================
-# 掲示板チャンネルへの直接投稿を削除
+# 直接投稿削除
 # ==========================================
 
 @bot.event
@@ -710,7 +877,7 @@ async def on_message(
 
 
 # ==========================================
-# Bot Ready
+# Ready
 # ==========================================
 
 @bot.event
@@ -752,7 +919,7 @@ async def setup_panel(
         title="📝 掲示板",
         description=(
             "匿名または非匿名で投稿できます。\n"
-            "下のボタンを押して投稿メッセージを入力してください。"
+            "下のボタンを押して投稿してください。"
         ),
         color=0x000000
     )
