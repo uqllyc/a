@@ -90,7 +90,7 @@ class ReportModal(discord.ui.Modal):
 
 class PanelView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # timeout=None でボタンを永続化
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_anon")
     async def cb_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -168,19 +168,16 @@ intents.message_content = True
 
 class CustomBot(commands.Bot):
     async def setup_hook(self):
-        # Bot起動時に永続ボタンを登録（これで再起動しても過去パネルが効くようになる）
         self.add_view(PanelView())
 
 bot = CustomBot(command_prefix="!", intents=intents)
 
-async def send_board_post(interaction: discord.Interaction, content: str, is_anonymous: bool, reply_target: str = None, files: list = None):
+async def send_board_post(interaction: discord.Interaction, content: str, is_anonymous: bool, reply_target: str = None, media_urls: list = None):
     global post_count
     board_channel = bot.get_channel(BOARD_CHANNEL_ID)
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
     if not board_channel:
-        if not interaction.response.is_done():
-            await interaction.response.send_message("エラー: BOARD_CHANNEL_IDが設定されていません。", ephemeral=True)
         return
 
     post_count += 1
@@ -188,6 +185,12 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
 
     raw_text = content if content else "（メディア投稿）"
     body_text = f"> **{reply_target} への返信**\n" + raw_text if reply_target else raw_text
+    
+    # メディアURLがある場合メッセージ末尾に追加（動画プレイヤー・画像がインライン表示される）
+    if media_urls:
+        urls_str = "\n".join(media_urls)
+        body_text += f"\n{urls_str}"
+
     author_name = "匿名" if is_anonymous else interaction.user.display_name
 
     embed = discord.Embed(description=body_text, color=0x000000)
@@ -199,23 +202,12 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
         embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
 
     post_view = PostItemView(post_num=post_count)
-    
-    if files:
-        board_files = files
-        log_files = []
-        if log_channel:
-            for f in files:
-                f.fp.seek(0)
-                log_files.append(discord.File(f.fp, filename=f.filename))
-
-        sent_msg = await board_channel.send(embed=embed, files=board_files, view=post_view)
-    else:
-        sent_msg = await board_channel.send(embed=embed, view=post_view)
+    sent_msg = await board_channel.send(embed=embed, view=post_view)
 
     if log_channel:
         log_embed = discord.Embed(
             title=f"📋 【投稿ログ #{post_count}】",
-            description=raw_text,
+            description=body_text,
             color=0x2b2d31
         )
         user_info = f"{interaction.user.mention}\n**名前:** {interaction.user.name}\n**ID:** `{interaction.user.id}`"
@@ -225,18 +217,12 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
         if reply_target:
             log_embed.add_field(name="💬 返信先", value=reply_target, inline=True)
             
-        has_file = "あり" if files else "なし"
+        has_file = "あり" if media_urls else "なし"
         log_embed.add_field(name="🖼️ メディア添付", value=has_file, inline=True)
         log_embed.add_field(name="⏰ 投稿時間", value=now_jst, inline=True)
         log_embed.add_field(name="🔗 メッセージリンク", value=sent_msg.jump_url, inline=False)
         
-        if files:
-            await log_channel.send(embed=log_embed, files=log_files)
-        else:
-            await log_channel.send(embed=log_embed)
-
-    if not interaction.response.is_done():
-        await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
+        await log_channel.send(embed=log_embed)
 
 async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
     pending_image_users[interaction.user.id] = {
@@ -259,16 +245,13 @@ async def on_message(message: discord.Message):
         return
 
     if message.channel.id == BOARD_CHANNEL_ID:
-        delete_task = bot.loop.create_task(message.delete())
         user_id = message.author.id
 
         if user_id in pending_image_users:
             config = pending_image_users.pop(user_id)
             
-            files = []
-            for attachment in message.attachments:
-                file_data = await attachment.to_file()
-                files.append(file_data)
+            # 添付ファイルのURLを直接取得（再アップロードの負荷と0byteエラーを完全に回避）
+            media_urls = [att.url for att in message.attachments]
 
             fake_interaction = type('obj', (object,), {
                 'user': message.author,
@@ -280,18 +263,19 @@ async def on_message(message: discord.Message):
                 content=message.content,
                 is_anonymous=config["is_anonymous"],
                 reply_target=config["reply_target"],
-                files=files
+                media_urls=media_urls
             )
             
+            # 元のメッセージは一瞬で削除
             try:
-                await delete_task
+                await message.delete()
             except Exception:
                 pass
             return
 
-        # ボタンを押さずに直接送信されたものは一切メッセージを残さず即時削除
+        # ボタンを押さずに直接送信されたものは即時削除
         try:
-            await delete_task
+            await message.delete()
         except Exception:
             pass
         return
