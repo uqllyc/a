@@ -29,20 +29,8 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# 2. Bot設定
+# 2. UIコンポーネント（永続化対応）
 # ==========================================
-TOKEN = os.environ.get("DISCORD_TOKEN")
-
-# ★ IDを入力 ★
-BOARD_CHANNEL_ID = 1542991170760872057  # 掲示板チャンネルID
-LOG_CHANNEL_ID = 1542866592566747166    # ログ用チャンネルID
-
-intents = discord.Intents.default()
-intents.message_content = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# --- モーダル定義 ---
 class TextPostModal(discord.ui.Modal):
     def __init__(self, is_anonymous: bool, reply_target: str = None):
         target_str = f"（{reply_target} 宛て）" if reply_target else ""
@@ -75,7 +63,7 @@ class ReportModal(discord.ui.Modal):
         super().__init__(title=title_text)
 
         default_reason = f"{target_post} について: " if target_post else ""
-        
+
         self.report_reason = discord.ui.TextInput(
             label='通報理由',
             style=discord.TextStyle.paragraph,
@@ -88,7 +76,6 @@ class ReportModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
-
         if not log_channel:
             await interaction.response.send_message("エラー: LOG_CHANNEL_IDが設定されていません。", ephemeral=True)
             return
@@ -97,115 +84,29 @@ class ReportModal(discord.ui.Modal):
         report_embed = discord.Embed(title="🚨【通報】", description=self.report_reason.value, color=0xff0000)
         report_embed.add_field(name="通報者", value=f"{interaction.user.mention} ({interaction.user.name} / ID: `{interaction.user.id}`)")
         report_embed.add_field(name="通報日時", value=now_jst)
-        
+
         await log_channel.send(embed=report_embed)
         await interaction.response.send_message("通報を送信しました。", ephemeral=True)
 
-# --- 投稿共通処理 ---
-async def send_board_post(interaction: discord.Interaction, content: str, is_anonymous: bool, reply_target: str = None, files: list = None):
-    global post_count
-
-    board_channel = bot.get_channel(BOARD_CHANNEL_ID)
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-
-    if not board_channel:
-        if not interaction.response.is_done():
-            await interaction.response.send_message("エラー: BOARD_CHANNEL_IDが設定されていません。", ephemeral=True)
-        return
-
-    post_count += 1
-    now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-
-    raw_text = content if content else "（画像のみ）"
-
-    if reply_target:
-        body_text = f"> **{reply_target} への返信**\n" + raw_text
-    else:
-        body_text = raw_text
-
-    author_name = "匿名" if is_anonymous else interaction.user.display_name
-
-    embed = discord.Embed(description=body_text, color=0x000000)
-    header_text = f"#{post_count} | {author_name} | {now_jst}"
-
-    if is_anonymous:
-        embed.set_author(name=header_text)
-    else:
-        embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
-
-    post_view = PostItemView(post_num=post_count)
-    
-    if files:
-        sent_msg = await board_channel.send(embed=embed, files=files, view=post_view)
-    else:
-        sent_msg = await board_channel.send(embed=embed, view=post_view)
-
-    if log_channel:
-        log_embed = discord.Embed(
-            title=f"📋 【投稿ログ #{post_count}】",
-            description=raw_text,
-            color=0x2b2d31
-        )
-        user_info = f"{interaction.user.mention}\n**名前:** {interaction.user.name}\n**ID:** `{interaction.user.id}`"
-        log_embed.add_field(name="👤 投稿者（本人）", value=user_info, inline=True)
-        log_embed.add_field(name="👁️ 表示形式", value="匿名" if is_anonymous else "非匿名", inline=True)
-        
-        if reply_target:
-            log_embed.add_field(name="💬 返信先", value=reply_target, inline=True)
-            
-        has_file = "あり" if files else "なし"
-        log_embed.add_field(name="🖼️ 画像添付", value=has_file, inline=True)
-        log_embed.add_field(name="⏰ 投稿時間", value=now_jst, inline=True)
-        log_embed.add_field(name="🔗 メッセージリンク", value=sent_msg.jump_url, inline=False)
-        
-        await log_channel.send(embed=log_embed)
-
-    if not interaction.response.is_done():
-        await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
-
-async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
-    pending_image_users[interaction.user.id] = {
-        "is_anonymous": is_anonymous,
-        "reply_target": reply_target
-    }
-    anon_str = "匿名" if is_anonymous else "非匿名"
-    target_str = f"（{reply_target} 宛て）" if reply_target else ""
-    
-    await interaction.response.send_message(
-        f"📷 **【{anon_str}画像投稿{target_str}】**\n"
-        f"このチャンネルに画像（＋文章）をそのまま送信してください。\n"
-        f"※送信後に投稿メッセージは自動削除され、掲示板へ反映されます。",
-        ephemeral=True
-    )
-
-# --- UIコンポーネント ---
 class PanelView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None) # timeout=None でボタンを永続化
 
-        btn_anon = discord.ui.Button(label="匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_anon")
-        async def cb_anon(interaction: discord.Interaction):
-            await interaction.response.send_modal(TextPostModal(is_anonymous=True))
-        btn_anon.callback = cb_anon
-        self.add_item(btn_anon)
+    @discord.ui.button(label="匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_anon")
+    async def cb_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(TextPostModal(is_anonymous=True))
 
-        btn_named = discord.ui.Button(label="非匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_named")
-        async def cb_named(interaction: discord.Interaction):
-            await interaction.response.send_modal(TextPostModal(is_anonymous=False))
-        btn_named.callback = cb_named
-        self.add_item(btn_named)
+    @discord.ui.button(label="非匿名", style=discord.ButtonStyle.primary, custom_id="panel_btn_named")
+    async def cb_named(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(TextPostModal(is_anonymous=False))
 
-        btn_img_anon = discord.ui.Button(label="匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
-        async def cb_img_anon(interaction: discord.Interaction):
-            await prompt_image_upload(interaction, is_anonymous=True)
-        btn_img_anon.callback = cb_img_anon
-        self.add_item(btn_img_anon)
+    @discord.ui.button(label="匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_anon")
+    async def cb_img_anon(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await prompt_image_upload(interaction, is_anonymous=True)
 
-        btn_img_named = discord.ui.Button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
-        async def cb_img_named(interaction: discord.Interaction):
-            await prompt_image_upload(interaction, is_anonymous=False)
-        btn_img_named.callback = cb_img_named
-        self.add_item(btn_img_named)
+    @discord.ui.button(label="非匿名画像", style=discord.ButtonStyle.success, custom_id="panel_btn_img_named")
+    async def cb_img_named(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await prompt_image_upload(interaction, is_anonymous=False)
 
 class PostItemView(discord.ui.View):
     def __init__(self, post_num: int):
@@ -256,8 +157,92 @@ class PostItemView(discord.ui.View):
         self.add_item(btn_report)
 
 # ==========================================
-# 3. 超高速メッセージ検知 & 自動削除
+# 3. Bot本体・処理
 # ==========================================
+TOKEN = os.environ.get("DISCORD_TOKEN")
+BOARD_CHANNEL_ID = 1542991170760872057
+LOG_CHANNEL_ID = 1542866592566747166
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+class CustomBot(commands.Bot):
+    async def setup_hook(self):
+        # Bot起動時に永続ボタンを登録（これで再起動しても過去パネルが効くようになる）
+        self.add_view(PanelView())
+
+bot = CustomBot(command_prefix="!", intents=intents)
+
+async def send_board_post(interaction: discord.Interaction, content: str, is_anonymous: bool, reply_target: str = None, files: list = None):
+    global post_count
+    board_channel = bot.get_channel(BOARD_CHANNEL_ID)
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+
+    if not board_channel:
+        if not interaction.response.is_done():
+            await interaction.response.send_message("エラー: BOARD_CHANNEL_IDが設定されていません。", ephemeral=True)
+        return
+
+    post_count += 1
+    now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+
+    raw_text = content if content else "（画像のみ）"
+    body_text = f"> **{reply_target} への返信**\n" + raw_text if reply_target else raw_text
+    author_name = "匿名" if is_anonymous else interaction.user.display_name
+
+    embed = discord.Embed(description=body_text, color=0x000000)
+    header_text = f"#{post_count} | {author_name} | {now_jst}"
+
+    if is_anonymous:
+        embed.set_author(name=header_text)
+    else:
+        embed.set_author(name=header_text, icon_url=interaction.user.display_avatar.url)
+
+    post_view = PostItemView(post_num=post_count)
+    
+    if files:
+        sent_msg = await board_channel.send(embed=embed, files=files, view=post_view)
+    else:
+        sent_msg = await board_channel.send(embed=embed, view=post_view)
+
+    if log_channel:
+        log_embed = discord.Embed(
+            title=f"📋 【投稿ログ #{post_count}】",
+            description=raw_text,
+            color=0x2b2d31
+        )
+        user_info = f"{interaction.user.mention}\n**名前:** {interaction.user.name}\n**ID:** `{interaction.user.id}`"
+        log_embed.add_field(name="👤 投稿者（本人）", value=user_info, inline=True)
+        log_embed.add_field(name="👁️ 表示形式", value="匿名" if is_anonymous else "非匿名", inline=True)
+        
+        if reply_target:
+            log_embed.add_field(name="💬 返信先", value=reply_target, inline=True)
+            
+        has_file = "あり" if files else "なし"
+        log_embed.add_field(name="🖼️ 画像添付", value=has_file, inline=True)
+        log_embed.add_field(name="⏰ 投稿時間", value=now_jst, inline=True)
+        log_embed.add_field(name="🔗 メッセージリンク", value=sent_msg.jump_url, inline=False)
+        
+        await log_channel.send(embed=log_embed)
+
+    if not interaction.response.is_done():
+        await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
+
+async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
+    pending_image_users[interaction.user.id] = {
+        "is_anonymous": is_anonymous,
+        "reply_target": reply_target
+    }
+    anon_str = "匿名" if is_anonymous else "非匿名"
+    target_str = f"（{reply_target} 宛て）" if reply_target else ""
+    
+    await interaction.response.send_message(
+        f"📷 **【{anon_str}画像投稿{target_str}】**\n"
+        f"このチャンネルに画像をそのまま送信してください。\n"
+        f"※送信後に投稿メッセージは自動削除され、掲示板へ反映されます。",
+        ephemeral=True
+    )
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
@@ -265,7 +250,6 @@ async def on_message(message: discord.Message):
 
     if message.channel.id == BOARD_CHANNEL_ID:
         delete_task = bot.loop.create_task(message.delete())
-
         user_id = message.author.id
 
         if user_id in pending_image_users:
@@ -303,12 +287,9 @@ async def on_message(message: discord.Message):
 
     await bot.process_commands(message)
 
-# --- 起動処理 ---
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
-    bot.add_view(PanelView())
-    
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
@@ -326,7 +307,6 @@ async def setup_panel(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=PanelView())
     await interaction.response.send_message("パネルを設置しました。", ephemeral=True)
 
-# --- 追加: チャンネル全削除 (nuke) コマンド ---
 @bot.tree.command(name="nuke", description="実行したチャンネルのメッセージをすべて消去して再作成します")
 @app_commands.checks.has_permissions(administrator=True)
 async def nuke(interaction: discord.Interaction):
@@ -335,12 +315,10 @@ async def nuke(interaction: discord.Interaction):
     
     await interaction.response.send_message("💣 チャンネルをリセットしています...", ephemeral=True)
     
-    # チャンネルを複製して旧チャンネルを削除
     new_channel = await channel.clone(reason="Nuke command executed")
     await new_channel.edit(position=position)
     await channel.delete(reason="Nuke command executed")
     
-    # 完了メッセージ送信
     embed = discord.Embed(
         title="💥 Nuke 完了",
         description="このチャンネルの全メッセージが消去されました。",
