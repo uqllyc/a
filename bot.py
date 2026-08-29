@@ -12,7 +12,6 @@ from discord.ext import commands
 JST = timezone(timedelta(hours=+9))
 post_count = 0
 
-
 # ==========================================
 # 1. Webサーバー (Render用)
 # ==========================================
@@ -25,7 +24,6 @@ def home():
     return "Bot is running!"
 
 
-# 投稿用Webページ
 @app.route('/post')
 def post_page():
     return render_template('post.html')
@@ -47,27 +45,16 @@ def api_post():
         'file'
     )
 
-    # 本文もファイルもない場合
     if not content and not file:
-
         return jsonify({
             "error": "本文または画像・動画を入力してください。"
         }), 400
 
-    # 現在は受信確認だけ
     print("Web投稿を受信しました")
-
-    print(
-        "本文:",
-        content
-    )
+    print("本文:", content)
 
     if file:
-
-        print(
-            "ファイル:",
-            file.filename
-        )
+        print("ファイル:", file.filename)
 
     return jsonify({
         "message": "受信しました"
@@ -142,7 +129,6 @@ class TextPostModal(discord.ui.Modal):
             self.content_input
         )
 
-
     async def on_submit(
         self,
         interaction: discord.Interaction
@@ -157,7 +143,7 @@ class TextPostModal(discord.ui.Modal):
 
 
 # ==========================================
-# 通報Modal
+# 通報
 # ==========================================
 
 class ReportModal(discord.ui.Modal):
@@ -196,7 +182,6 @@ class ReportModal(discord.ui.Modal):
             self.report_reason
         )
 
-
     async def on_submit(
         self,
         interaction: discord.Interaction
@@ -215,20 +200,17 @@ class ReportModal(discord.ui.Modal):
 
             return
 
-
         now_jst = datetime.now(
             JST
         ).strftime(
             "%Y/%m/%d %H:%M"
         )
 
-
         report_embed = discord.Embed(
             title="🚨【通報】",
             description=self.report_reason.value,
             color=0xff0000
         )
-
 
         report_embed.add_field(
             name="通報者",
@@ -239,17 +221,14 @@ class ReportModal(discord.ui.Modal):
             )
         )
 
-
         report_embed.add_field(
             name="通報日時",
             value=now_jst
         )
 
-
         await log_channel.send(
             embed=report_embed
         )
-
 
         await interaction.response.send_message(
             "通報を送信しました。",
@@ -269,39 +248,23 @@ class PanelView(discord.ui.View):
             timeout=None
         )
 
+        WEB_URL = "https://a-ai9n.onrender.com/post"
 
-    @discord.ui.button(
-        label="匿名",
-        style=discord.ButtonStyle.primary,
-        custom_id="panel_btn_anon"
-    )
-    async def cb_anon(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal(
-                is_anonymous=True
+        # 匿名投稿
+        self.add_item(
+            discord.ui.Button(
+                label="匿名",
+                style=discord.ButtonStyle.link,
+                url=WEB_URL
             )
         )
 
-
-    @discord.ui.button(
-        label="非匿名",
-        style=discord.ButtonStyle.primary,
-        custom_id="panel_btn_named"
-    )
-    async def cb_named(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal(
-                is_anonymous=False
+        # 非匿名投稿
+        self.add_item(
+            discord.ui.Button(
+                label="非匿名",
+                style=discord.ButtonStyle.link,
+                url=WEB_URL
             )
         )
 
@@ -324,10 +287,9 @@ class PostItemView(discord.ui.View):
         target_id = f"_{post_num}"
         reply_str = f"#{post_num}"
 
-
-        # -------------------------
+        # ----------------------------------
         # 匿名
-        # -------------------------
+        # ----------------------------------
 
         btn_anon = discord.ui.Button(
             label="匿名",
@@ -335,7 +297,6 @@ class PostItemView(discord.ui.View):
             custom_id=f"btn_anon{target_id}",
             row=0
         )
-
 
         async def cb_anon(
             interaction: discord.Interaction
@@ -347,17 +308,15 @@ class PostItemView(discord.ui.View):
                 )
             )
 
-
         btn_anon.callback = cb_anon
 
         self.add_item(
             btn_anon
         )
 
-
-        # -------------------------
+        # ----------------------------------
         # 非匿名
-        # -------------------------
+        # ----------------------------------
 
         btn_named = discord.ui.Button(
             label="非匿名",
@@ -365,7 +324,6 @@ class PostItemView(discord.ui.View):
             custom_id=f"btn_named{target_id}",
             row=0
         )
-
 
         async def cb_named(
             interaction: discord.Interaction
@@ -377,17 +335,15 @@ class PostItemView(discord.ui.View):
                 )
             )
 
-
         btn_named.callback = cb_named
 
         self.add_item(
             btn_named
         )
 
-
-        # -------------------------
+        # ----------------------------------
         # 匿名返信
-        # -------------------------
+        # ----------------------------------
 
         btn_reply_anon = discord.ui.Button(
             label="匿名返信",
@@ -395,7 +351,6 @@ class PostItemView(discord.ui.View):
             custom_id=f"btn_reply_anon{target_id}",
             row=1
         )
-
 
         async def cb_reply_anon(
             interaction: discord.Interaction
@@ -408,17 +363,15 @@ class PostItemView(discord.ui.View):
                 )
             )
 
-
         btn_reply_anon.callback = cb_reply_anon
 
         self.add_item(
             btn_reply_anon
         )
 
-
-        # -------------------------
+        # ----------------------------------
         # 非匿名返信
-        # -------------------------
+        # ----------------------------------
 
         btn_reply_named = discord.ui.Button(
             label="非匿名返信",
@@ -426,7 +379,6 @@ class PostItemView(discord.ui.View):
             custom_id=f"btn_reply_named{target_id}",
             row=1
         )
-
 
         async def cb_reply_named(
             interaction: discord.Interaction
@@ -439,17 +391,15 @@ class PostItemView(discord.ui.View):
                 )
             )
 
-
         btn_reply_named.callback = cb_reply_named
 
         self.add_item(
             btn_reply_named
         )
 
-
-        # -------------------------
+        # ----------------------------------
         # 通報
-        # -------------------------
+        # ----------------------------------
 
         btn_report = discord.ui.Button(
             label="通報",
@@ -457,7 +407,6 @@ class PostItemView(discord.ui.View):
             custom_id=f"btn_report{target_id}",
             row=1
         )
-
 
         async def cb_report(
             interaction: discord.Interaction
@@ -468,7 +417,6 @@ class PostItemView(discord.ui.View):
                     target_post=reply_str
                 )
             )
-
 
         btn_report.callback = cb_report
 
@@ -486,12 +434,10 @@ TOKEN = os.environ.get(
 )
 
 BOARD_CHANNEL_ID = 1543316045786386493
-
 LOG_CHANNEL_ID = 1543231098937413642
 
 
 intents = discord.Intents.default()
-
 intents.message_content = True
 
 
@@ -513,7 +459,7 @@ bot = CustomBot(
 
 
 # ==========================================
-# 掲示板へ投稿
+# Discord掲示板投稿
 # ==========================================
 
 async def send_board_post(
@@ -525,7 +471,6 @@ async def send_board_post(
 
     global post_count
 
-
     board_channel = bot.get_channel(
         BOARD_CHANNEL_ID
     )
@@ -533,7 +478,6 @@ async def send_board_post(
     log_channel = bot.get_channel(
         LOG_CHANNEL_ID
     )
-
 
     if not board_channel:
 
@@ -546,16 +490,13 @@ async def send_board_post(
 
         return
 
-
     post_count += 1
-
 
     now_jst = datetime.now(
         JST
     ).strftime(
         "%Y/%m/%d %H:%M"
     )
-
 
     if reply_target:
 
@@ -568,11 +509,8 @@ async def send_board_post(
 
         body_text = content
 
-
-    # ======================================
-    # 匿名なら匿名だけ
-    # アイコンなし
-    # ======================================
+    # 匿名の場合は匿名だけ表示
+    # アイコンも設定しない
 
     if is_anonymous:
 
@@ -584,19 +522,16 @@ async def send_board_post(
             interaction.user.display_name
         )
 
-
     embed = discord.Embed(
         description=body_text,
         color=0x000000
     )
-
 
     header_text = (
         f"#{post_count} | "
         f"{author_name} | "
         f"{now_jst}"
     )
-
 
     if is_anonymous:
 
@@ -611,17 +546,14 @@ async def send_board_post(
             icon_url=interaction.user.display_avatar.url
         )
 
-
     post_view = PostItemView(
         post_num=post_count
     )
-
 
     sent_msg = await board_channel.send(
         embed=embed,
         view=post_view
     )
-
 
     # ======================================
     # 投稿ログ
@@ -635,20 +567,17 @@ async def send_board_post(
             color=0x2b2d31
         )
 
-
         user_info = (
             f"{interaction.user.mention}\n"
             f"**名前:** {interaction.user.name}\n"
             f"**ID:** `{interaction.user.id}`"
         )
 
-
         log_embed.add_field(
             name="👤 投稿者（本人）",
             value=user_info,
             inline=True
         )
-
 
         log_embed.add_field(
             name="👁️ 表示形式",
@@ -660,7 +589,6 @@ async def send_board_post(
             inline=True
         )
 
-
         if reply_target:
 
             log_embed.add_field(
@@ -669,13 +597,11 @@ async def send_board_post(
                 inline=True
             )
 
-
         log_embed.add_field(
             name="⏰ 投稿時間",
             value=now_jst,
             inline=True
         )
-
 
         log_embed.add_field(
             name="🔗 メッセージリンク",
@@ -683,11 +609,9 @@ async def send_board_post(
             inline=False
         )
 
-
         await log_channel.send(
             embed=log_embed
         )
-
 
     if not interaction.response.is_done():
 
@@ -698,7 +622,7 @@ async def send_board_post(
 
 
 # ==========================================
-# 直接メッセージを削除
+# 掲示板チャンネルの直接投稿を削除
 # ==========================================
 
 @bot.event
@@ -708,7 +632,6 @@ async def on_message(
 
     if message.author.bot:
         return
-
 
     if message.channel.id == BOARD_CHANNEL_ID:
 
@@ -722,14 +645,13 @@ async def on_message(
 
         return
 
-
     await bot.process_commands(
         message
     )
 
 
 # ==========================================
-# Bot起動
+# Bot Ready
 # ==========================================
 
 @bot.event
@@ -738,7 +660,6 @@ async def on_ready():
     print(
         f'Logged in as {bot.user.name}'
     )
-
 
     try:
 
@@ -776,12 +697,10 @@ async def setup_panel(
         color=0x000000
     )
 
-
     await interaction.channel.send(
         embed=embed,
         view=PanelView()
     )
-
 
     await interaction.response.send_message(
         "パネルを設置しました。",
@@ -805,37 +724,30 @@ async def nuke(
 ):
 
     channel = interaction.channel
-
     position = channel.position
-
 
     await interaction.response.send_message(
         "💣 チャンネルをリセットしています...",
         ephemeral=True
     )
 
-
     new_channel = await channel.clone(
         reason="Nuke command executed"
     )
-
 
     await new_channel.edit(
         position=position
     )
 
-
     await channel.delete(
         reason="Nuke command executed"
     )
-
 
     embed = discord.Embed(
         title="💥 Nuke 完了",
         description="このチャンネルの全メッセージが消去されました。",
         color=0xff0000
     )
-
 
     await new_channel.send(
         embed=embed
