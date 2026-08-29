@@ -50,6 +50,8 @@ class TextPostModal(discord.ui.Modal):
         self.add_item(self.content_input)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # 先にDiscordに応答を返してモーダルエラーを防止
+        await interaction.response.send_message("投稿を処理中...", ephemeral=True)
         await send_board_post(
             interaction=interaction,
             content=self.content_input.value,
@@ -75,9 +77,10 @@ class ReportModal(discord.ui.Modal):
         self.add_item(self.report_reason)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
         if not log_channel:
-            await interaction.response.send_message("エラー: LOG_CHANNEL_IDが設定されていません。", ephemeral=True)
+            await interaction.followup.send("エラー: LOG_CHANNEL_IDが設定されていません。", ephemeral=True)
             return
 
         now_jst = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
@@ -86,7 +89,7 @@ class ReportModal(discord.ui.Modal):
         report_embed.add_field(name="通報日時", value=now_jst)
 
         await log_channel.send(embed=report_embed)
-        await interaction.response.send_message("通報を送信しました。", ephemeral=True)
+        await interaction.followup.send("通報を送信しました。", ephemeral=True)
 
 class PanelView(discord.ui.View):
     def __init__(self):
@@ -186,7 +189,6 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     raw_text = content if content else "（メディア投稿）"
     body_text = f"> **{reply_target} への返信**\n" + raw_text if reply_target else raw_text
     
-    # メディアURLがある場合メッセージ末尾に追加（動画プレイヤー・画像がインライン表示される）
     if media_urls:
         urls_str = "\n".join(media_urls)
         body_text += f"\n{urls_str}"
@@ -224,6 +226,11 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
         
         await log_channel.send(embed=log_embed)
 
+    try:
+        await interaction.edit_original_response(content="投稿が完了しました！")
+    except Exception:
+        pass
+
 async def prompt_image_upload(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
     pending_image_users[interaction.user.id] = {
         "is_anonymous": is_anonymous,
@@ -249,13 +256,11 @@ async def on_message(message: discord.Message):
 
         if user_id in pending_image_users:
             config = pending_image_users.pop(user_id)
-            
-            # 添付ファイルのURLを直接取得（再アップロードの負荷と0byteエラーを完全に回避）
             media_urls = [att.url for att in message.attachments]
 
             fake_interaction = type('obj', (object,), {
                 'user': message.author,
-                'response': type('obj', (object,), {'is_done': lambda: True})()
+                'edit_original_response': lambda **kw: asyncio.sleep(0)
             })()
 
             await send_board_post(
@@ -266,14 +271,12 @@ async def on_message(message: discord.Message):
                 media_urls=media_urls
             )
             
-            # 元のメッセージは一瞬で削除
             try:
                 await message.delete()
             except Exception:
                 pass
             return
 
-        # ボタンを押さずに直接送信されたものは即時削除
         try:
             await message.delete()
         except Exception:
