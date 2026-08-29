@@ -2,57 +2,104 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-    <title>掲示板投稿</title>
+    <title>掲示板に投稿</title>
 
     <style>
+
         * {
             box-sizing: border-box;
         }
 
         body {
             margin: 0;
-            padding: 20px;
-            background: #111214;
-            color: #ffffff;
-            font-family: Arial, sans-serif;
+            min-height: 100vh;
+            background: #f2f3f5;
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         .container {
-            max-width: 650px;
-            margin: 0 auto;
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
         }
 
-        h2 {
-            margin: 0 0 16px;
+        .card {
+            background: white;
+            border-radius: 18px;
+            padding: 24px;
+
+            box-shadow:
+                0 8px 30px rgba(0, 0, 0, 0.08);
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .mode {
+            color: #777;
+            font-size: 14px;
+            margin-bottom: 20px;
         }
 
         textarea {
             width: 100%;
-            min-height: 150px;
+            min-height: 140px;
+
+            border: 1px solid #ddd;
+            border-radius: 12px;
+
+            padding: 14px;
             resize: vertical;
-            padding: 12px;
-            border-radius: 8px;
-            border: 1px solid #444;
-            background: #1e1f22;
-            color: #fff;
-            font-size: 15px;
+
+            font-size: 16px;
             outline: none;
         }
 
-        .upload {
-            margin-top: 15px;
-            padding: 20px;
-            border: 1px dashed #555;
-            border-radius: 10px;
-            background: #1e1f22;
-            text-align: center;
+        textarea:focus {
+            border-color: #5865f2;
         }
 
-        input[type="file"] {
+        .file-area {
+            margin-top: 15px;
+        }
+
+        .file-button {
+            display: block;
+
             width: 100%;
-            margin-top: 12px;
+            padding: 15px;
+
+            border: 2px dashed #ccc;
+            border-radius: 12px;
+
+            text-align: center;
+            cursor: pointer;
+
+            color: #555;
+        }
+
+        .file-button:hover {
+            background: #f7f7f7;
+        }
+
+        #fileInput {
+            display: none;
         }
 
         #preview {
@@ -61,71 +108,369 @@
 
         #preview img,
         #preview video {
-            max-width: 100%;
-            max-height: 350px;
-            border-radius: 8px;
+            width: 100%;
+            max-height: 400px;
+
+            object-fit: contain;
+
+            border-radius: 12px;
+            background: #000;
         }
 
-        button {
+        .post-button {
             width: 100%;
-            margin-top: 18px;
-            padding: 13px;
+
+            margin-top: 20px;
+            padding: 15px;
+
             border: none;
-            border-radius: 8px;
+            border-radius: 12px;
+
             background: #5865f2;
             color: white;
+
             font-size: 16px;
-            font-weight: bold;
+            font-weight: 700;
+
             cursor: pointer;
         }
 
-        button:disabled {
-            opacity: .5;
+        .post-button:hover {
+            opacity: 0.9;
+        }
+
+        .post-button:disabled {
+            opacity: 0.5;
             cursor: not-allowed;
         }
 
         #status {
+            margin-top: 12px;
             text-align: center;
-            margin-top: 15px;
+            font-size: 14px;
         }
+
     </style>
 </head>
+
 
 <body>
 
 <div class="container">
 
-    <h2 id="mode">匿名投稿</h2>
+    <div class="card">
 
-    <textarea
-        id="content"
-        maxlength="2000"
-        placeholder="メッセージを入力してください..."
-    ></textarea>
+        <div class="title">
+            📝 掲示板に投稿
+        </div>
 
-    <div class="upload">
-
-        <div>📷 画像・動画を選択</div>
-
-        <input
-            id="file"
-            type="file"
-            accept="image/*,video/*"
+        <div
+            class="mode"
+            id="modeText"
         >
+            投稿モードを確認中...
+        </div>
+
+
+        <textarea
+            id="content"
+            placeholder="メッセージを入力..."
+            maxlength="2000"
+        ></textarea>
+
+
+        <div class="file-area">
+
+            <label
+                class="file-button"
+                for="fileInput"
+            >
+                📷 画像・動画を選択
+            </label>
+
+            <input
+                type="file"
+                id="fileInput"
+                accept="image/*,video/*"
+            >
+
+        </div>
+
 
         <div id="preview"></div>
 
+
+        <button
+            class="post-button"
+            id="postButton"
+        >
+            📤 投稿する
+        </button>
+
+
+        <div id="status"></div>
+
     </div>
-
-    <button id="submit">
-        投稿する
-    </button>
-
-    <div id="status"></div>
 
 </div>
 
-<script src="/static/post.js"></script>
+
+<script>
+
+    // ======================================
+    // 匿名 / 非匿名
+    // ======================================
+
+    const params =
+        new URLSearchParams(
+            window.location.search
+        );
+
+    const isAnonymous =
+        params.get("anonymous") === "true";
+
+
+    const modeText =
+        document.getElementById(
+            "modeText"
+        );
+
+
+    if (isAnonymous) {
+
+        modeText.textContent =
+            "🔒 匿名投稿";
+
+    } else {
+
+        modeText.textContent =
+            "👤 非匿名投稿";
+
+    }
+
+
+    // ======================================
+    // ファイル選択
+    // ======================================
+
+    const fileInput =
+        document.getElementById(
+            "fileInput"
+        );
+
+    const preview =
+        document.getElementById(
+            "preview"
+        );
+
+
+    fileInput.addEventListener(
+        "change",
+        function () {
+
+            preview.innerHTML = "";
+
+            const file =
+                this.files[0];
+
+            if (!file) {
+                return;
+            }
+
+
+            // 画像
+            if (
+                file.type.startsWith(
+                    "image/"
+                )
+            ) {
+
+                const img =
+                    document.createElement(
+                        "img"
+                    );
+
+                img.src =
+                    URL.createObjectURL(
+                        file
+                    );
+
+                preview.appendChild(
+                    img
+                );
+
+            }
+
+
+            // 動画
+            else if (
+                file.type.startsWith(
+                    "video/"
+                )
+            ) {
+
+                const video =
+                    document.createElement(
+                        "video"
+                    );
+
+                video.src =
+                    URL.createObjectURL(
+                        file
+                    );
+
+                video.controls = true;
+
+                preview.appendChild(
+                    video
+                );
+
+            }
+
+        }
+    );
+
+
+    // ======================================
+    // 投稿
+    // ======================================
+
+    const postButton =
+        document.getElementById(
+            "postButton"
+        );
+
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+
+    postButton.addEventListener(
+        "click",
+        async function () {
+
+            const content =
+                document
+                    .getElementById(
+                        "content"
+                    )
+                    .value
+                    .trim();
+
+
+            const file =
+                fileInput.files[0];
+
+
+            if (
+                !content &&
+                !file
+            ) {
+
+                status.textContent =
+                    "本文または画像・動画を入力してください。";
+
+                return;
+            }
+
+
+            postButton.disabled =
+                true;
+
+            status.textContent =
+                "投稿しています...";
+
+
+            const formData =
+                new FormData();
+
+
+            formData.append(
+                "content",
+                content
+            );
+
+
+            formData.append(
+                "anonymous",
+                isAnonymous
+                    ? "true"
+                    : "false"
+            );
+
+
+            if (file) {
+
+                formData.append(
+                    "file",
+                    file
+                );
+
+            }
+
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/post",
+                        {
+                            method: "POST",
+                            body: formData
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                if (
+                    !response.ok
+                ) {
+
+                    throw new Error(
+                        data.error ||
+                        "投稿に失敗しました。"
+                    );
+
+                }
+
+
+                status.textContent =
+                    "✅ 投稿を受け付けました！";
+
+
+                document
+                    .getElementById(
+                        "content"
+                    )
+                    .value = "";
+
+                fileInput.value = "";
+
+                preview.innerHTML = "";
+
+
+            } catch (error) {
+
+                status.textContent =
+                    "❌ " +
+                    error.message;
+
+
+            } finally {
+
+                postButton.disabled =
+                    false;
+
+            }
+
+        }
+    );
+
+</script>
 
 </body>
 </html>
