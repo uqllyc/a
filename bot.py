@@ -161,7 +161,7 @@ class PostItemView(discord.ui.View):
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
 BOARD_CHANNEL_ID = 1543316045786386493
-LOG_CHANNEL_ID = 1543231098937413642
+LOG_CHANNEL_ID = 1543053996950945844
 
 intents = discord.Intents.default()
 intents.message_content = True
