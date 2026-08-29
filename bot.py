@@ -160,7 +160,7 @@ class PostItemView(discord.ui.View):
 # 3. Bot本体・処理
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
-BOARD_CHANNEL_ID = 1543319196086173816
+BOARD_CHANNEL_ID = 1543324230018408592
 LOG_CHANNEL_ID = 1543053996950945844
 
 intents = discord.Intents.default()
@@ -227,13 +227,12 @@ async def send_board_post(interaction: discord.Interaction, content: str, is_ano
     if not interaction.response.is_done():
         await interaction.response.send_message("投稿が完了しました！", ephemeral=True)
 
-# プライベートスレッドを作成してアップロード場所を提供する処理
+# 移動しやすいよう「スレッドへ移動」ボタンリンクを提示する仕組み
 async def create_private_upload_thread(interaction: discord.Interaction, is_anonymous: bool, reply_target: str = None):
     channel = interaction.channel
     anon_str = "匿名" if is_anonymous else "非匿名"
     target_str = f"（{reply_target} 宛て）" if reply_target else ""
 
-    # プライベートスレッドを作成（管理者と本人のみにしか見えない）
     thread = await channel.create_thread(
         name=f"🔒-{anon_str}-メディアアップロード-{interaction.user.name}",
         type=discord.ChannelType.private_thread,
@@ -241,35 +240,40 @@ async def create_private_upload_thread(interaction: discord.Interaction, is_anon
         invitable=False
     )
     
-    # 送信者をスレッドに追加
     await thread.add_user(interaction.user)
 
-    # システム変数としてスレッド内に情報を保持（名前フォーマット等）
     target_tag = f"R:{reply_target}" if reply_target else "R:NONE"
     await thread.send(f"__SYS_CONFIG__ | A:{is_anonymous} | {target_tag} | U:{interaction.user.id}", delete_after=0)
 
     await thread.send(
         f"📷 **【{anon_str}画像・動画投稿{target_str}】**\n"
         f"{interaction.user.mention} ここに画像や動画を送信してください。\n"
-        f"※送信完了後、**この部屋は自動的に削除**されますので他人にバレる心配はありません。"
+        f"※送信完了後、この部屋は自動的に削除されます。"
     )
 
+    # 1タップで移動できるダイレクトURLボタンを設置
+    thread_view = discord.ui.View()
+    thread_button = discord.ui.Button(
+        label="👉 送信部屋へ移動する",
+        style=discord.ButtonStyle.link,
+        url=thread.jump_url
+    )
+    thread_view.add_item(thread_button)
+
     await interaction.response.send_message(
-        f"🔒 あなた専用の送信部屋を作成しました！ {thread.mention} から動画・画像を送信してください。",
+        f"🔒 自分専用の送信部屋を作成しました！下のボタンを押して移動してください。",
+        view=thread_view,
         ephemeral=True
     )
 
-# スレッド内のメッセージを監視して掲示板に転送＆削除
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # メッセージがプライベートスレッド内で送信された場合
     if isinstance(message.channel, discord.Thread) and message.channel.name.startswith("🔒-"):
         thread = message.channel
 
-        # スレッド内の設定用システムメッセージ等を特定するため、メッセージ履歴を取得
         is_anonymous = True
         reply_target = None
         
@@ -281,7 +285,6 @@ async def on_message(message: discord.Message):
                 reply_target = target_val if target_val != "NONE" else None
                 break
 
-        # メディアのファイルを準備
         files = []
         for attachment in message.attachments:
             file_bytes = await attachment.read()
@@ -292,7 +295,6 @@ async def on_message(message: discord.Message):
             'response': type('obj', (object,), {'is_done': lambda: True})()
         })()
 
-        # 掲示板へ投稿
         await send_board_post(
             interaction=fake_interaction,
             content=message.content,
@@ -301,7 +303,6 @@ async def on_message(message: discord.Message):
             files=files
         )
 
-        # 処理が終わったら専用部屋（スレッド）を消去
         try:
             await thread.delete()
         except Exception:
