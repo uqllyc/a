@@ -160,7 +160,7 @@ class PostItemView(discord.ui.View):
 # 3. Bot本体・処理
 # ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN")
-BOARD_CHANNEL_ID = 1543053996950945844
+BOARD_CHANNEL_ID = 1543231098937413642
 LOG_CHANNEL_ID = 1543231098937413642
 
 intents = discord.Intents.default()
