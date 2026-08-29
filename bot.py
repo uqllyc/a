@@ -2,7 +2,7 @@ import os
 import threading
 from datetime import datetime, timezone, timedelta
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request, jsonify
 
 import discord
 from discord import app_commands
@@ -31,13 +31,70 @@ def post_page():
     return render_template('post.html')
 
 
+# ==========================================
+# Web投稿API
+# ==========================================
+
+@app.route('/api/post', methods=['POST'])
+def api_post():
+
+    content = request.form.get(
+        'content',
+        ''
+    ).strip()
+
+    file = request.files.get(
+        'file'
+    )
+
+    # 本文もファイルもない場合
+    if not content and not file:
+
+        return jsonify({
+            "error": "本文または画像・動画を入力してください。"
+        }), 400
+
+    # 現在は受信確認だけ
+    print("Web投稿を受信しました")
+
+    print(
+        "本文:",
+        content
+    )
+
+    if file:
+
+        print(
+            "ファイル:",
+            file.filename
+        )
+
+    return jsonify({
+        "message": "受信しました"
+    })
+
+
 def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
+
+    app.run(
+        host='0.0.0.0',
+        port=port
+    )
 
 
 def keep_alive():
-    t = threading.Thread(target=run_web)
+
+    t = threading.Thread(
+        target=run_web
+    )
+
     t.daemon = True
     t.start()
 
@@ -48,10 +105,23 @@ def keep_alive():
 
 class TextPostModal(discord.ui.Modal):
 
-    def __init__(self, is_anonymous: bool, reply_target: str = None):
+    def __init__(
+        self,
+        is_anonymous: bool,
+        reply_target: str = None
+    ):
 
-        target_str = f"（{reply_target} 宛て）" if reply_target else ""
-        anon_str = "匿名" if is_anonymous else "非匿名"
+        target_str = (
+            f"（{reply_target} 宛て）"
+            if reply_target
+            else ""
+        )
+
+        anon_str = (
+            "匿名"
+            if is_anonymous
+            else "非匿名"
+        )
 
         super().__init__(
             title=f'{anon_str}投稿{target_str}'
@@ -68,10 +138,15 @@ class TextPostModal(discord.ui.Modal):
             max_length=2000,
         )
 
-        self.add_item(self.content_input)
+        self.add_item(
+            self.content_input
+        )
 
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
 
         await send_board_post(
             interaction=interaction,
@@ -87,7 +162,10 @@ class TextPostModal(discord.ui.Modal):
 
 class ReportModal(discord.ui.Modal):
 
-    def __init__(self, target_post: str = None):
+    def __init__(
+        self,
+        target_post: str = None
+    ):
 
         title_text = (
             f'🚨 通報 ({target_post})'
@@ -95,7 +173,9 @@ class ReportModal(discord.ui.Modal):
             else '🚨 管理者への通報'
         )
 
-        super().__init__(title=title_text)
+        super().__init__(
+            title=title_text
+        )
 
         default_reason = (
             f"{target_post} について: "
@@ -112,12 +192,19 @@ class ReportModal(discord.ui.Modal):
             max_length=1000,
         )
 
-        self.add_item(self.report_reason)
+        self.add_item(
+            self.report_reason
+        )
 
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
 
-        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+        log_channel = bot.get_channel(
+            LOG_CHANNEL_ID
+        )
 
         if not log_channel:
 
@@ -129,7 +216,9 @@ class ReportModal(discord.ui.Modal):
             return
 
 
-        now_jst = datetime.now(JST).strftime(
+        now_jst = datetime.now(
+            JST
+        ).strftime(
             "%Y/%m/%d %H:%M"
         )
 
@@ -223,19 +312,21 @@ class PanelView(discord.ui.View):
 
 class PostItemView(discord.ui.View):
 
-    def __init__(self, post_num: int):
+    def __init__(
+        self,
+        post_num: int
+    ):
 
         super().__init__(
             timeout=None
         )
-
 
         target_id = f"_{post_num}"
         reply_str = f"#{post_num}"
 
 
         # -------------------------
-        # 匿名投稿
+        # 匿名
         # -------------------------
 
         btn_anon = discord.ui.Button(
@@ -259,11 +350,13 @@ class PostItemView(discord.ui.View):
 
         btn_anon.callback = cb_anon
 
-        self.add_item(btn_anon)
+        self.add_item(
+            btn_anon
+        )
 
 
         # -------------------------
-        # 非匿名投稿
+        # 非匿名
         # -------------------------
 
         btn_named = discord.ui.Button(
@@ -287,7 +380,9 @@ class PostItemView(discord.ui.View):
 
         btn_named.callback = cb_named
 
-        self.add_item(btn_named)
+        self.add_item(
+            btn_named
+        )
 
 
         # -------------------------
@@ -316,7 +411,9 @@ class PostItemView(discord.ui.View):
 
         btn_reply_anon.callback = cb_reply_anon
 
-        self.add_item(btn_reply_anon)
+        self.add_item(
+            btn_reply_anon
+        )
 
 
         # -------------------------
@@ -345,7 +442,9 @@ class PostItemView(discord.ui.View):
 
         btn_reply_named.callback = cb_reply_named
 
-        self.add_item(btn_reply_named)
+        self.add_item(
+            btn_reply_named
+        )
 
 
         # -------------------------
@@ -373,7 +472,9 @@ class PostItemView(discord.ui.View):
 
         btn_report.callback = cb_report
 
-        self.add_item(btn_report)
+        self.add_item(
+            btn_report
+        )
 
 
 # ==========================================
@@ -394,7 +495,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 
-class CustomBot(commands.Bot):
+class CustomBot(
+    commands.Bot
+):
 
     async def setup_hook(self):
 
@@ -447,7 +550,9 @@ async def send_board_post(
     post_count += 1
 
 
-    now_jst = datetime.now(JST).strftime(
+    now_jst = datetime.now(
+        JST
+    ).strftime(
         "%Y/%m/%d %H:%M"
     )
 
@@ -465,8 +570,8 @@ async def send_board_post(
 
 
     # ======================================
-    # 匿名なら「匿名」だけ
-    # アイコンも付けない
+    # 匿名なら匿名だけ
+    # アイコンなし
     # ======================================
 
     if is_anonymous:
@@ -475,7 +580,9 @@ async def send_board_post(
 
     else:
 
-        author_name = interaction.user.display_name
+        author_name = (
+            interaction.user.display_name
+        )
 
 
     embed = discord.Embed(
@@ -493,14 +600,12 @@ async def send_board_post(
 
     if is_anonymous:
 
-        # 匿名はアイコンなし
         embed.set_author(
             name=header_text
         )
 
     else:
 
-        # 非匿名はアイコンあり
         embed.set_author(
             name=header_text,
             icon_url=interaction.user.display_avatar.url
@@ -519,7 +624,7 @@ async def send_board_post(
 
 
     # ======================================
-    # ログ
+    # 投稿ログ
     # ======================================
 
     if log_channel:
@@ -547,7 +652,11 @@ async def send_board_post(
 
         log_embed.add_field(
             name="👁️ 表示形式",
-            value="匿名" if is_anonymous else "非匿名",
+            value=(
+                "匿名"
+                if is_anonymous
+                else "非匿名"
+            ),
             inline=True
         )
 
@@ -600,9 +709,6 @@ async def on_message(
     if message.author.bot:
         return
 
-
-    # 掲示板チャンネルに直接書き込まれた
-    # メッセージは削除
 
     if message.channel.id == BOARD_CHANNEL_ID:
 
