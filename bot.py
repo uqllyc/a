@@ -65,7 +65,6 @@ def keep_alive():
 # ==========================================
 
 intents = discord.Intents.default()
-
 intents.message_content = True
 
 
@@ -92,35 +91,22 @@ class TextPostModal(discord.ui.Modal):
 
     def __init__(
         self,
-        is_anonymous: bool,
         reply_target=None
     ):
 
-        self.is_anonymous = is_anonymous
         self.reply_target = reply_target
 
         if reply_target:
-
-            title = (
-                "匿名返信"
-                if is_anonymous
-                else "非匿名返信"
-            )
-
+            modal_title = "返信"
         else:
-
-            title = (
-                "匿名投稿"
-                if is_anonymous
-                else "非匿名投稿"
-            )
+            modal_title = "投稿"
 
         super().__init__(
-            title=title
+            title=modal_title
         )
 
         # ==================================
-        # 本文
+        # メッセージ
         # ==================================
 
         self.content_input = discord.ui.TextInput(
@@ -135,6 +121,40 @@ class TextPostModal(discord.ui.Modal):
             discord.ui.Label(
                 text="メッセージ",
                 component=self.content_input
+            )
+        )
+
+        # ==================================
+        # 匿名 / 非匿名
+        # ==================================
+
+        self.type_select = discord.ui.Select(
+            custom_id="post_type",
+            placeholder="匿名 / 非匿名を選択",
+            min_values=1,
+            max_values=1,
+            required=True
+        )
+
+        self.type_select.add_option(
+            label="匿名",
+            value="anonymous",
+            description="名前を表示せずに投稿します",
+            emoji="👤"
+        )
+
+        self.type_select.add_option(
+            label="非匿名",
+            value="named",
+            description="Discordの名前を表示して投稿します",
+            emoji="👤"
+        )
+
+        self.add_item(
+            discord.ui.Label(
+                text="投稿形式",
+                description="投稿方法を選択してください",
+                component=self.type_select
             )
         )
 
@@ -171,6 +191,37 @@ class TextPostModal(discord.ui.Modal):
             self.file_upload.values
         )
 
+        # ==================================
+        # 投稿形式
+        # ==================================
+
+        selected_type = None
+
+        if self.type_select.values:
+            selected_type = self.type_select.values[0]
+
+        if selected_type == "anonymous":
+
+            is_anonymous = True
+
+        elif selected_type == "named":
+
+            is_anonymous = False
+
+        else:
+
+            await interaction.response.send_message(
+                "❌ 匿名または非匿名を選択してください。",
+                ephemeral=True,
+                delete_after=0.5
+            )
+
+            return
+
+        # ==================================
+        # 空投稿チェック
+        # ==================================
+
         if not content and not attachments:
 
             await interaction.response.send_message(
@@ -184,7 +235,7 @@ class TextPostModal(discord.ui.Modal):
         await send_board_post(
             interaction=interaction,
             content=content,
-            is_anonymous=self.is_anonymous,
+            is_anonymous=is_anonymous,
             reply_target=self.reply_target,
             attachments=attachments
         )
@@ -287,63 +338,6 @@ class ReportModal(discord.ui.Modal):
 
 
 # ==========================================
-# 投稿方法選択
-# ==========================================
-
-class PostTypeView(discord.ui.View):
-
-    def __init__(self):
-
-        super().__init__(
-            timeout=60
-        )
-
-
-    # ======================================
-    # 匿名
-    # ======================================
-
-    @discord.ui.button(
-        label="匿名",
-        style=discord.ButtonStyle.primary,
-        custom_id="choose_anonymous"
-    )
-    async def anonymous(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal(
-                is_anonymous=True
-            )
-        )
-
-
-    # ======================================
-    # 非匿名
-    # ======================================
-
-    @discord.ui.button(
-        label="非匿名",
-        style=discord.ButtonStyle.primary,
-        custom_id="choose_named"
-    )
-    async def named(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal(
-                is_anonymous=False
-            )
-        )
-
-
-# ==========================================
 # メインパネル
 # ==========================================
 
@@ -368,10 +362,8 @@ class PanelView(discord.ui.View):
         button: discord.ui.Button
     ):
 
-        await interaction.response.send_message(
-            "投稿方法を選択してください。",
-            view=PostTypeView(),
-            ephemeral=True
+        await interaction.response.send_modal(
+            TextPostModal()
         )
 
 
@@ -394,15 +386,15 @@ class PostItemView(discord.ui.View):
 
 
     # ======================================
-    # 匿名返信
+    # 返信
     # ======================================
 
     @discord.ui.button(
-        label="匿名返信",
+        label="返信",
         style=discord.ButtonStyle.secondary,
-        custom_id="post_reply_anonymous"
+        custom_id="post_reply"
     )
-    async def reply_anonymous(
+    async def reply(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button
@@ -410,30 +402,6 @@ class PostItemView(discord.ui.View):
 
         await interaction.response.send_modal(
             TextPostModal(
-                is_anonymous=True,
-                reply_target=f"#{self.post_num}"
-            )
-        )
-
-
-    # ======================================
-    # 非匿名返信
-    # ======================================
-
-    @discord.ui.button(
-        label="非匿名返信",
-        style=discord.ButtonStyle.secondary,
-        custom_id="post_reply_named"
-    )
-    async def reply_named(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal(
-                is_anonymous=False,
                 reply_target=f"#{self.post_num}"
             )
         )
@@ -504,7 +472,7 @@ async def send_board_post(
     )
 
     # ======================================
-    # 本文
+    # 投稿者名
     # ======================================
 
     author_name = (
@@ -512,6 +480,10 @@ async def send_board_post(
         if is_anonymous
         else interaction.user.display_name
     )
+
+    # ======================================
+    # 本文
+    # ======================================
 
     if reply_target:
 
@@ -527,7 +499,6 @@ async def send_board_post(
     if not body:
 
         body = "（本文なし）"
-
 
     # ======================================
     # Embed
@@ -557,7 +528,6 @@ async def send_board_post(
             icon_url=interaction.user.display_avatar.url
         )
 
-
     # ======================================
     # ファイル
     # ======================================
@@ -581,7 +551,6 @@ async def send_board_post(
                 repr(e)
             )
 
-
     # ======================================
     # Discordへ送信
     # ======================================
@@ -604,7 +573,6 @@ async def send_board_post(
                 post_num=post_count
             )
         )
-
 
     # ======================================
     # ログ
@@ -675,7 +643,6 @@ async def send_board_post(
             embed=log_embed
         )
 
-
     # ======================================
     # 完了メッセージ
     # ======================================
@@ -697,7 +664,6 @@ async def on_message(
 ):
 
     if message.author.bot:
-
         return
 
     if message.channel.id == BOARD_CHANNEL_ID:
