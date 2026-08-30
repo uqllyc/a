@@ -20,8 +20,11 @@ post_count = 0
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
-BOARD_CHANNEL_ID = 1543316045786386493
-LOG_CHANNEL_ID = 1543231098937413642
+# 掲示板チャンネル
+BOARD_CHANNEL_ID = 1543324852612505600
+
+# ログチャンネル
+LOG_CHANNEL_ID = 1543053996950945844
 
 
 # ==========================================
