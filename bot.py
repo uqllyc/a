@@ -2,9 +2,8 @@ import os
 import asyncio
 import threading
 from datetime import datetime, timezone, timedelta
-from io import BytesIO
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask
 
 import discord
 from discord import app_commands
@@ -15,7 +14,7 @@ from discord.ext import commands
 # 基本設定
 # ==========================================
 
-JST = timezone(timedelta(hours=+9))
+JST = timezone(timedelta(hours=9))
 
 post_count = 0
 
@@ -23,8 +22,6 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 
 BOARD_CHANNEL_ID = 1543316045786386493
 LOG_CHANNEL_ID = 1543231098937413642
-
-WEB_URL = "https://a-ai9n.onrender.com"
 
 
 # ==========================================
@@ -37,278 +34,6 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return "Bot is running!"
-
-
-@app.route("/post")
-def post_page():
-    return render_template("post.html")
-
-
-# ==========================================
-# Webからの投稿
-# ==========================================
-
-@app.route("/api/post", methods=["POST"])
-def api_post():
-
-    content = request.form.get(
-        "content",
-        ""
-    ).strip()
-
-    anonymous = (
-        request.form.get(
-            "anonymous",
-            "true"
-        ) == "true"
-    )
-
-    file = request.files.get("file")
-
-
-    # 本文もファイルもない場合
-    if not content and not file:
-
-        return jsonify({
-            "error": "本文または画像・動画を入力してください。"
-        }), 400
-
-
-    # Botが起動しているか確認
-    if not bot.is_ready():
-
-        return jsonify({
-            "error": "Botが起動していません。"
-        }), 503
-
-
-    try:
-
-        future = asyncio.run_coroutine_threadsafe(
-            send_web_post(
-                content=content,
-                anonymous=anonymous,
-                file=file
-            ),
-            bot.loop
-        )
-
-
-        result = future.result(
-            timeout=30
-        )
-
-
-        return jsonify({
-            "message": "投稿しました！",
-            "post_number": result
-        })
-
-
-    except Exception as e:
-
-        print(
-            "Web投稿エラー:",
-            repr(e)
-        )
-
-        return jsonify({
-            "error": "Discordへの投稿に失敗しました。"
-        }), 500
-
-
-# ==========================================
-# Web投稿 → Discord
-# ==========================================
-
-async def send_web_post(
-    content,
-    anonymous,
-    file
-):
-
-    global post_count
-
-
-    board_channel = bot.get_channel(
-        BOARD_CHANNEL_ID
-    )
-
-
-    if not board_channel:
-
-        raise Exception(
-            "BOARD_CHANNEL_IDが見つかりません"
-        )
-
-
-    post_count += 1
-
-
-    now_jst = datetime.now(
-        JST
-    ).strftime(
-        "%Y/%m/%d %H:%M"
-    )
-
-
-    # ======================================
-    # 表示名
-    # ======================================
-
-    if anonymous:
-
-        author_name = "匿名"
-
-    else:
-
-        author_name = "Web投稿者"
-
-
-    header_text = (
-        f"#{post_count} | "
-        f"{author_name} | "
-        f"{now_jst}"
-    )
-
-
-    # ======================================
-    # Embed
-    # ======================================
-
-    embed = discord.Embed(
-        description=content
-        if content
-        else None,
-        color=0x000000
-    )
-
-
-    # 匿名の場合
-    # → 匿名だけ
-    # → アイコンなし
-
-    if anonymous:
-
-        embed.set_author(
-            name=header_text
-        )
-
-    else:
-
-        embed.set_author(
-            name=header_text
-        )
-
-
-    # ======================================
-    # ファイル
-    # ======================================
-
-    discord_file = None
-
-
-    if file:
-
-        file_bytes = file.read()
-
-
-        discord_file = discord.File(
-            BytesIO(file_bytes),
-            filename=file.filename
-        )
-
-
-    # ======================================
-    # Discordへ投稿
-    # ======================================
-
-    if discord_file:
-
-        sent_msg = await board_channel.send(
-            embed=embed,
-            file=discord_file,
-            view=PostItemView(
-                post_num=post_count
-            )
-        )
-
-    else:
-
-        sent_msg = await board_channel.send(
-            embed=embed,
-            view=PostItemView(
-                post_num=post_count
-            )
-        )
-
-
-    print(
-        "Discordへ投稿しました:",
-        sent_msg.jump_url
-    )
-
-
-    # ======================================
-    # ログ
-    # ======================================
-
-    log_channel = bot.get_channel(
-        LOG_CHANNEL_ID
-    )
-
-
-    if log_channel:
-
-        log_embed = discord.Embed(
-            title=f"📋 【投稿ログ #{post_count}】",
-            description=content
-            if content
-            else "（本文なし）",
-            color=0x2b2d31
-        )
-
-
-        log_embed.add_field(
-            name="👁️ 表示形式",
-            value=(
-                "匿名"
-                if anonymous
-                else "非匿名"
-            ),
-            inline=True
-        )
-
-
-        log_embed.add_field(
-            name="⏰ 投稿時間",
-            value=now_jst,
-            inline=True
-        )
-
-
-        if file:
-
-            log_embed.add_field(
-                name="📎 ファイル",
-                value=file.filename,
-                inline=False
-            )
-
-
-        log_embed.add_field(
-            name="🔗 メッセージリンク",
-            value=sent_msg.jump_url,
-            inline=False
-        )
-
-
-        await log_channel.send(
-            embed=log_embed
-        )
-
-
-    return post_count
 
 
 # ==========================================
@@ -324,7 +49,6 @@ def run_web():
         )
     )
 
-
     app.run(
         host="0.0.0.0",
         port=port
@@ -338,8 +62,31 @@ def keep_alive():
     )
 
     thread.daemon = True
-
     thread.start()
+
+
+# ==========================================
+# Bot
+# ==========================================
+
+intents = discord.Intents.default()
+
+intents.message_content = True
+
+
+class CustomBot(commands.Bot):
+
+    async def setup_hook(self):
+
+        self.add_view(
+            PanelView()
+        )
+
+
+bot = CustomBot(
+    command_prefix="!",
+    intents=intents
+)
 
 
 # ==========================================
@@ -354,27 +101,24 @@ class TextPostModal(discord.ui.Modal):
         reply_target: str = None
     ):
 
-        target_str = (
-            f"（{reply_target} 宛て）"
-            if reply_target
-            else ""
-        )
+        self.is_anonymous = is_anonymous
+        self.reply_target = reply_target
 
-
-        anon_str = (
+        anon_text = (
             "匿名"
             if is_anonymous
             else "非匿名"
         )
 
-
-        super().__init__(
-            title=f"{anon_str}投稿{target_str}"
+        reply_text = (
+            f" {reply_target} 宛て"
+            if reply_target
+            else ""
         )
 
-
-        self.is_anonymous = is_anonymous
-        self.reply_target = reply_target
+        super().__init__(
+            title=f"{anon_text}投稿{reply_text}"
+        )
 
 
         self.content_input = discord.ui.TextInput(
@@ -415,37 +159,40 @@ class ReportModal(discord.ui.Modal):
         target_post: str = None
     ):
 
-        title_text = (
-            f"🚨 通報 ({target_post})"
-            if target_post
-            else "🚨 管理者への通報"
-        )
+        self.target_post = target_post
+
+        if target_post:
+
+            title = f"🚨 通報 {target_post}"
+
+            default_text = (
+                f"{target_post} について: "
+            )
+
+        else:
+
+            title = "🚨 管理者への通報"
+
+            default_text = ""
 
 
         super().__init__(
-            title=title_text
+            title=title
         )
 
 
-        default_reason = (
-            f"{target_post} について: "
-            if target_post
-            else ""
-        )
-
-
-        self.report_reason = discord.ui.TextInput(
+        self.reason = discord.ui.TextInput(
             label="通報理由",
             style=discord.TextStyle.paragraph,
-            placeholder="理由を入力してください...",
-            default=default_reason,
+            placeholder="通報理由を入力してください...",
+            default=default_text,
             required=True,
             max_length=1000
         )
 
 
         self.add_item(
-            self.report_reason
+            self.reason
         )
 
 
@@ -462,7 +209,7 @@ class ReportModal(discord.ui.Modal):
         if not log_channel:
 
             await interaction.response.send_message(
-                "エラー: LOG_CHANNEL_IDが設定されていません。",
+                "ログチャンネルが見つかりません。",
                 ephemeral=True
             )
 
@@ -476,36 +223,47 @@ class ReportModal(discord.ui.Modal):
         )
 
 
-        report_embed = discord.Embed(
+        embed = discord.Embed(
             title="🚨【通報】",
-            description=self.report_reason.value,
+            description=self.reason.value,
             color=0xff0000
         )
 
 
-        report_embed.add_field(
+        embed.add_field(
             name="通報者",
             value=(
-                f"{interaction.user.mention} "
-                f"({interaction.user.name} / "
-                f"ID: `{interaction.user.id}`)"
-            )
+                f"{interaction.user.mention}\n"
+                f"名前: {interaction.user.name}\n"
+                f"ID: `{interaction.user.id}`"
+            ),
+            inline=False
         )
 
 
-        report_embed.add_field(
+        embed.add_field(
             name="通報日時",
-            value=now_jst
+            value=now_jst,
+            inline=True
         )
+
+
+        if self.target_post:
+
+            embed.add_field(
+                name="対象投稿",
+                value=self.target_post,
+                inline=True
+            )
 
 
         await log_channel.send(
-            embed=report_embed
+            embed=embed
         )
 
 
         await interaction.response.send_message(
-            "通報を送信しました。",
+            "✅ 通報を送信しました。",
             ephemeral=True
         )
 
@@ -523,36 +281,52 @@ class PanelView(discord.ui.View):
         )
 
 
-        # 匿名
+    # ======================================
+    # 匿名
+    # ======================================
 
-        self.add_item(
-            discord.ui.Button(
-                label="匿名",
-                style=discord.ButtonStyle.link,
-                url=(
-                    f"{WEB_URL}"
-                    "/post?anonymous=true"
-                )
+    @discord.ui.button(
+        label="匿名",
+        style=discord.ButtonStyle.primary,
+        custom_id="panel_anonymous"
+    )
+    async def anonymous(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=True
             )
         )
 
 
-        # 非匿名
+    # ======================================
+    # 非匿名
+    # ======================================
 
-        self.add_item(
-            discord.ui.Button(
-                label="非匿名",
-                style=discord.ButtonStyle.link,
-                url=(
-                    f"{WEB_URL}"
-                    "/post?anonymous=false"
-                )
+    @discord.ui.button(
+        label="非匿名",
+        style=discord.ButtonStyle.primary,
+        custom_id="panel_named"
+    )
+    async def named(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=False
             )
         )
 
 
 # ==========================================
-# 掲示板投稿のボタン
+# 投稿後のボタン
 # ==========================================
 
 class PostItemView(discord.ui.View):
@@ -566,191 +340,79 @@ class PostItemView(discord.ui.View):
             timeout=None
         )
 
-
-        target_id = f"_{post_num}"
-        reply_str = f"#{post_num}"
+        self.post_num = post_num
 
 
-        # ==================================
-        # 匿名
-        # ==================================
+    # ======================================
+    # 匿名返信
+    # ======================================
 
-        btn_anon = discord.ui.Button(
-            label="匿名",
-            style=discord.ButtonStyle.primary,
-            custom_id=f"btn_anon{target_id}",
-            row=0
-        )
+    @discord.ui.button(
+        label="匿名返信",
+        style=discord.ButtonStyle.secondary,
+        custom_id="reply_anonymous"
+    )
+    async def reply_anonymous(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
-
-        async def cb_anon(
-            interaction: discord.Interaction
-        ):
-
-            await interaction.response.send_modal(
-                TextPostModal(
-                    is_anonymous=True
-                )
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=True,
+                reply_target=f"#{self.post_num}"
             )
-
-
-        btn_anon.callback = cb_anon
-
-        self.add_item(
-            btn_anon
         )
 
 
-        # ==================================
-        # 非匿名
-        # ==================================
+    # ======================================
+    # 非匿名返信
+    # ======================================
 
-        btn_named = discord.ui.Button(
-            label="非匿名",
-            style=discord.ButtonStyle.primary,
-            custom_id=f"btn_named{target_id}",
-            row=0
-        )
+    @discord.ui.button(
+        label="非匿名返信",
+        style=discord.ButtonStyle.secondary,
+        custom_id="reply_named"
+    )
+    async def reply_named(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
-
-        async def cb_named(
-            interaction: discord.Interaction
-        ):
-
-            await interaction.response.send_modal(
-                TextPostModal(
-                    is_anonymous=False
-                )
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=False,
+                reply_target=f"#{self.post_num}"
             )
-
-
-        btn_named.callback = cb_named
-
-        self.add_item(
-            btn_named
         )
 
 
-        # ==================================
-        # 匿名返信
-        # ==================================
+    # ======================================
+    # 通報
+    # ======================================
 
-        btn_reply_anon = discord.ui.Button(
-            label="匿名返信",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"btn_reply_anon{target_id}",
-            row=1
-        )
+    @discord.ui.button(
+        label="通報",
+        style=discord.ButtonStyle.danger,
+        custom_id="report_post"
+    )
+    async def report(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
-
-        async def cb_reply_anon(
-            interaction: discord.Interaction
-        ):
-
-            await interaction.response.send_modal(
-                TextPostModal(
-                    is_anonymous=True,
-                    reply_target=reply_str
-                )
+        await interaction.response.send_modal(
+            ReportModal(
+                target_post=f"#{self.post_num}"
             )
-
-
-        btn_reply_anon.callback = cb_reply_anon
-
-        self.add_item(
-            btn_reply_anon
-        )
-
-
-        # ==================================
-        # 非匿名返信
-        # ==================================
-
-        btn_reply_named = discord.ui.Button(
-            label="非匿名返信",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"btn_reply_named{target_id}",
-            row=1
-        )
-
-
-        async def cb_reply_named(
-            interaction: discord.Interaction
-        ):
-
-            await interaction.response.send_modal(
-                TextPostModal(
-                    is_anonymous=False,
-                    reply_target=reply_str
-                )
-            )
-
-
-        btn_reply_named.callback = cb_reply_named
-
-        self.add_item(
-            btn_reply_named
-        )
-
-
-        # ==================================
-        # 通報
-        # ==================================
-
-        btn_report = discord.ui.Button(
-            label="通報",
-            style=discord.ButtonStyle.danger,
-            custom_id=f"btn_report{target_id}",
-            row=1
-        )
-
-
-        async def cb_report(
-            interaction: discord.Interaction
-        ):
-
-            await interaction.response.send_modal(
-                ReportModal(
-                    target_post=reply_str
-                )
-            )
-
-
-        btn_report.callback = cb_report
-
-        self.add_item(
-            btn_report
         )
 
 
 # ==========================================
-# Bot本体
-# ==========================================
-
-intents = discord.Intents.default()
-
-intents.message_content = True
-
-
-class CustomBot(
-    commands.Bot
-):
-
-    async def setup_hook(self):
-
-        self.add_view(
-            PanelView()
-        )
-
-
-bot = CustomBot(
-    command_prefix="!",
-    intents=intents
-)
-
-
-# ==========================================
-# Discord通常投稿
+# Discordへ投稿
 # ==========================================
 
 async def send_board_post(
@@ -775,12 +437,10 @@ async def send_board_post(
 
     if not board_channel:
 
-        if not interaction.response.is_done():
-
-            await interaction.response.send_message(
-                "エラー: BOARD_CHANNEL_IDが設定されていません。",
-                ephemeral=True
-            )
+        await interaction.response.send_message(
+            "❌ 掲示板チャンネルが見つかりません。",
+            ephemeral=True
+        )
 
         return
 
@@ -795,20 +455,9 @@ async def send_board_post(
     )
 
 
-    if reply_target:
-
-        body_text = (
-            f"> **{reply_target} への返信**\n"
-            f"{content}"
-        )
-
-    else:
-
-        body_text = content
-
-
-    # 匿名なら匿名だけ
-    # アイコンは付けない
+    # ======================================
+    # 表示名
+    # ======================================
 
     if is_anonymous:
 
@@ -821,13 +470,33 @@ async def send_board_post(
         )
 
 
+    # ======================================
+    # 本文
+    # ======================================
+
+    if reply_target:
+
+        body = (
+            f"> **{reply_target} への返信**\n"
+            f"{content}"
+        )
+
+    else:
+
+        body = content
+
+
+    # ======================================
+    # Embed
+    # ======================================
+
     embed = discord.Embed(
-        description=body_text,
+        description=body,
         color=0x000000
     )
 
 
-    header_text = (
+    header = (
         f"#{post_count} | "
         f"{author_name} | "
         f"{now_jst}"
@@ -837,18 +506,22 @@ async def send_board_post(
     if is_anonymous:
 
         embed.set_author(
-            name=header_text
+            name=header
         )
 
     else:
 
         embed.set_author(
-            name=header_text,
+            name=header,
             icon_url=interaction.user.display_avatar.url
         )
 
 
-    sent_msg = await board_channel.send(
+    # ======================================
+    # Discordへ投稿
+    # ======================================
+
+    sent_message = await board_channel.send(
         embed=embed,
         view=PostItemView(
             post_num=post_count
@@ -863,23 +536,20 @@ async def send_board_post(
     if log_channel:
 
         log_embed = discord.Embed(
-            title=f"📋 【投稿ログ #{post_count}】",
+            title=f"📋【投稿ログ #{post_count}】",
             description=content,
             color=0x2b2d31
         )
 
 
-        user_info = (
-            f"{interaction.user.mention}\n"
-            f"**名前:** {interaction.user.name}\n"
-            f"**ID:** `{interaction.user.id}`"
-        )
-
-
         log_embed.add_field(
             name="👤 投稿者（本人）",
-            value=user_info,
-            inline=True
+            value=(
+                f"{interaction.user.mention}\n"
+                f"名前: {interaction.user.name}\n"
+                f"ID: `{interaction.user.id}`"
+            ),
+            inline=False
         )
 
 
@@ -912,7 +582,7 @@ async def send_board_post(
 
         log_embed.add_field(
             name="🔗 メッセージリンク",
-            value=sent_msg.jump_url,
+            value=sent_message.jump_url,
             inline=False
         )
 
@@ -922,12 +592,14 @@ async def send_board_post(
         )
 
 
-    if not interaction.response.is_done():
+    # ======================================
+    # 完了通知
+    # ======================================
 
-        await interaction.response.send_message(
-            "投稿が完了しました！",
-            ephemeral=True
-        )
+    await interaction.response.send_message(
+        f"✅ 投稿しました！ #{post_count}",
+        ephemeral=True
+    )
 
 
 # ==========================================
@@ -970,7 +642,7 @@ async def on_message(
 async def on_ready():
 
     print(
-        f"Logged in as {bot.user.name}"
+        f"Logged in as {bot.user}"
     )
 
 
@@ -1018,7 +690,7 @@ async def setup_panel(
 
 
     await interaction.response.send_message(
-        "パネルを設置しました。",
+        "✅ パネルを設置しました。",
         ephemeral=True
     )
 
@@ -1029,7 +701,7 @@ async def setup_panel(
 
 @bot.tree.command(
     name="nuke",
-    description="実行したチャンネルのメッセージをすべて消去して再作成します"
+    description="実行したチャンネルをリセットします"
 )
 @app_commands.checks.has_permissions(
     administrator=True
@@ -1039,6 +711,7 @@ async def nuke(
 ):
 
     channel = interaction.channel
+
     position = channel.position
 
 
@@ -1086,10 +759,12 @@ async def nuke_error(
         app_commands.MissingPermissions
     ):
 
-        await interaction.response.send_message(
-            "❌ このコマンドを実行するには「管理者権限」が必要です。",
-            ephemeral=True
-        )
+        if not interaction.response.is_done():
+
+            await interaction.response.send_message(
+                "❌ 管理者権限が必要です。",
+                ephemeral=True
+            )
 
 
 # ==========================================
@@ -1098,16 +773,16 @@ async def nuke_error(
 
 if __name__ == "__main__":
 
-    if TOKEN:
+    if not TOKEN:
+
+        print(
+            "❌ DISCORD_TOKEN が設定されていません。"
+        )
+
+    else:
 
         keep_alive()
 
         bot.run(
             TOKEN
-        )
-
-    else:
-
-        print(
-            "エラー: DISCORD_TOKEN が設定されていません。"
         )
