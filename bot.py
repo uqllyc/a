@@ -9,10 +9,6 @@ from discord import app_commands
 from discord.ext import commands
 
 
-# ==========================================
-# 基本設定
-# ==========================================
-
 JST = timezone(timedelta(hours=9))
 
 post_count = 0
@@ -106,7 +102,7 @@ class TextPostModal(discord.ui.Modal):
 
         # 本文
         self.content_input = discord.ui.TextInput(
-            label="メッセージ",
+            custom_id="post_content",
             style=discord.TextStyle.paragraph,
             placeholder="メッセージを入力してください...",
             required=False,
@@ -114,18 +110,29 @@ class TextPostModal(discord.ui.Modal):
         )
 
         self.add_item(
-            self.content_input
+            discord.ui.Label(
+                text="メッセージ",
+                component=self.content_input
+            )
         )
 
-        # ファイル
+        # 画像・動画
         self.file_upload = discord.ui.FileUpload(
+            custom_id="post_files",
             min_values=0,
             max_values=4,
             required=False
         )
 
+        # ★重要
+        # FileUploadを直接add_itemせず
+        # Labelの中に入れる
         self.add_item(
-            self.file_upload
+            discord.ui.Label(
+                text="画像・動画",
+                description="写真や動画を選択できます",
+                component=self.file_upload
+            )
         )
 
 
@@ -134,13 +141,9 @@ class TextPostModal(discord.ui.Modal):
         interaction: discord.Interaction
     ):
 
-        content = (
-            str(
-                self.content_input.value
-                or ""
-            )
-            .strip()
-        )
+        content = str(
+            self.content_input.value or ""
+        ).strip()
 
         attachments = list(
             self.file_upload.values
@@ -182,6 +185,7 @@ class ReportModal(discord.ui.Modal):
         )
 
         self.reason = discord.ui.TextInput(
+            custom_id="report_reason",
             label="通報理由",
             style=discord.TextStyle.paragraph,
             placeholder="理由を入力してください...",
@@ -308,7 +312,7 @@ class PanelView(discord.ui.View):
 
 
 # ==========================================
-# 投稿後のボタン
+# 投稿後ボタン
 # ==========================================
 
 class PostItemView(discord.ui.View):
@@ -398,7 +402,6 @@ async def send_board_post(
     if attachments is None:
         attachments = []
 
-
     board_channel = bot.get_channel(
         BOARD_CHANNEL_ID
     )
@@ -416,9 +419,7 @@ async def send_board_post(
 
         return
 
-
     post_count += 1
-
 
     now_jst = datetime.now(
         JST
@@ -426,17 +427,11 @@ async def send_board_post(
         "%Y/%m/%d %H:%M"
     )
 
-
-    if is_anonymous:
-
-        author_name = "匿名"
-
-    else:
-
-        author_name = (
-            interaction.user.display_name
-        )
-
+    author_name = (
+        "匿名"
+        if is_anonymous
+        else interaction.user.display_name
+    )
 
     if reply_target:
 
@@ -449,24 +444,19 @@ async def send_board_post(
 
         body = content
 
-
     if not body:
-
         body = "（本文なし）"
-
 
     embed = discord.Embed(
         description=body,
         color=0x000000
     )
 
-
     header = (
         f"#{post_count} | "
         f"{author_name} | "
         f"{now_jst}"
     )
-
 
     if is_anonymous:
 
@@ -482,12 +472,8 @@ async def send_board_post(
         )
 
 
-    # ======================================
-    # 添付ファイル
-    # ======================================
-
+    # ファイル
     discord_files = []
-
 
     for attachment in attachments:
 
@@ -507,10 +493,7 @@ async def send_board_post(
             )
 
 
-    # ======================================
     # 投稿
-    # ======================================
-
     if discord_files:
 
         sent_message = await board_channel.send(
@@ -531,10 +514,7 @@ async def send_board_post(
         )
 
 
-    # ======================================
     # ログ
-    # ======================================
-
     if log_channel:
 
         log_embed = discord.Embed(
@@ -608,7 +588,7 @@ async def send_board_post(
 
 
 # ==========================================
-# 掲示板への直接投稿を削除
+# 直接投稿を削除
 # ==========================================
 
 @bot.event
@@ -619,19 +599,14 @@ async def on_message(
     if message.author.bot:
         return
 
-
     if message.channel.id == BOARD_CHANNEL_ID:
 
         try:
-
             await message.delete()
-
         except Exception:
-
             pass
 
         return
-
 
     await bot.process_commands(
         message
@@ -639,7 +614,7 @@ async def on_message(
 
 
 # ==========================================
-# Bot起動
+# 起動
 # ==========================================
 
 @bot.event
