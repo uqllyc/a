@@ -36,13 +36,7 @@ def home():
 
 
 def run_web():
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            10000
-        )
-    )
+    port = int(os.environ.get("PORT", 10000))
 
     app.run(
         host="0.0.0.0",
@@ -51,7 +45,6 @@ def run_web():
 
 
 def keep_alive():
-
     thread = threading.Thread(
         target=run_web,
         daemon=True
@@ -71,10 +64,7 @@ intents.message_content = True
 class CustomBot(commands.Bot):
 
     async def setup_hook(self):
-
-        self.add_view(
-            PanelView()
-        )
+        self.add_view(PanelView())
 
 
 bot = CustomBot(
@@ -91,18 +81,31 @@ class TextPostModal(discord.ui.Modal):
 
     def __init__(
         self,
+        is_anonymous=False,
         reply_target=None
     ):
 
+        self.is_anonymous = is_anonymous
         self.reply_target = reply_target
 
         if reply_target:
-            modal_title = "返信"
+
+            title = (
+                "匿名返信"
+                if is_anonymous
+                else "返信"
+            )
+
         else:
-            modal_title = "投稿"
+
+            title = (
+                "匿名投稿"
+                if is_anonymous
+                else "投稿"
+            )
 
         super().__init__(
-            title=modal_title
+            title=title
         )
 
         # ==================================
@@ -121,40 +124,6 @@ class TextPostModal(discord.ui.Modal):
             discord.ui.Label(
                 text="メッセージ",
                 component=self.content_input
-            )
-        )
-
-        # ==================================
-        # 匿名 / 非匿名
-        # ==================================
-
-        self.type_select = discord.ui.Select(
-            custom_id="post_type",
-            placeholder="匿名 / 非匿名を選択",
-            min_values=1,
-            max_values=1,
-            required=True
-        )
-
-        self.type_select.add_option(
-            label="匿名",
-            value="anonymous",
-            description="名前を表示せずに投稿します",
-            emoji="👤"
-        )
-
-        self.type_select.add_option(
-            label="非匿名",
-            value="named",
-            description="Discordの名前を表示して投稿します",
-            emoji="👤"
-        )
-
-        self.add_item(
-            discord.ui.Label(
-                text="投稿形式",
-                description="投稿方法を選択してください",
-                component=self.type_select
             )
         )
 
@@ -191,37 +160,6 @@ class TextPostModal(discord.ui.Modal):
             self.file_upload.values
         )
 
-        # ==================================
-        # 投稿形式
-        # ==================================
-
-        selected_type = None
-
-        if self.type_select.values:
-            selected_type = self.type_select.values[0]
-
-        if selected_type == "anonymous":
-
-            is_anonymous = True
-
-        elif selected_type == "named":
-
-            is_anonymous = False
-
-        else:
-
-            await interaction.response.send_message(
-                "❌ 匿名または非匿名を選択してください。",
-                ephemeral=True,
-                delete_after=0.5
-            )
-
-            return
-
-        # ==================================
-        # 空投稿チェック
-        # ==================================
-
         if not content and not attachments:
 
             await interaction.response.send_message(
@@ -235,7 +173,7 @@ class TextPostModal(discord.ui.Modal):
         await send_board_post(
             interaction=interaction,
             content=content,
-            is_anonymous=is_anonymous,
+            is_anonymous=self.is_anonymous,
             reply_target=self.reply_target,
             attachments=attachments
         )
@@ -338,6 +276,116 @@ class ReportModal(discord.ui.Modal):
 
 
 # ==========================================
+# 投稿後ボタン
+# ==========================================
+
+class PostItemView(discord.ui.View):
+
+    def __init__(
+        self,
+        post_num: int
+    ):
+
+        super().__init__(
+            timeout=None
+        )
+
+        self.post_num = post_num
+
+
+    # ======================================
+    # 投稿
+    # ======================================
+
+    @discord.ui.button(
+        label="投稿",
+        emoji="📝",
+        style=discord.ButtonStyle.primary,
+        custom_id="post_new"
+    )
+    async def new_post(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal()
+        )
+
+
+    # ======================================
+    # 返信
+    # ======================================
+
+    @discord.ui.button(
+        label="返信",
+        emoji="💬",
+        style=discord.ButtonStyle.secondary,
+        custom_id="post_reply"
+    )
+    async def reply(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=False,
+                reply_target=f"#{self.post_num}"
+            )
+        )
+
+
+    # ======================================
+    # 匿名返信
+    # ======================================
+
+    @discord.ui.button(
+        label="匿名返信",
+        emoji="🕵️",
+        style=discord.ButtonStyle.secondary,
+        custom_id="post_reply_anonymous"
+    )
+    async def reply_anonymous(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=True,
+                reply_target=f"#{self.post_num}"
+            )
+        )
+
+
+    # ======================================
+    # 通報
+    # ======================================
+
+    @discord.ui.button(
+        label="通報",
+        emoji="🚨",
+        style=discord.ButtonStyle.danger,
+        custom_id="post_report"
+    )
+    async def report(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            ReportModal(
+                target_post=f"#{self.post_num}"
+            )
+        )
+
+
+# ==========================================
 # メインパネル
 # ==========================================
 
@@ -364,68 +412,6 @@ class PanelView(discord.ui.View):
 
         await interaction.response.send_modal(
             TextPostModal()
-        )
-
-
-# ==========================================
-# 投稿後ボタン
-# ==========================================
-
-class PostItemView(discord.ui.View):
-
-    def __init__(
-        self,
-        post_num: int
-    ):
-
-        super().__init__(
-            timeout=None
-        )
-
-        self.post_num = post_num
-
-
-    # ======================================
-    # 返信
-    # ======================================
-
-    @discord.ui.button(
-        label="返信",
-        style=discord.ButtonStyle.secondary,
-        custom_id="post_reply"
-    )
-    async def reply(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal(
-                reply_target=f"#{self.post_num}"
-            )
-        )
-
-
-    # ======================================
-    # 通報
-    # ======================================
-
-    @discord.ui.button(
-        label="通報",
-        style=discord.ButtonStyle.danger,
-        custom_id="post_report"
-    )
-    async def report(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            ReportModal(
-                target_post=f"#{self.post_num}"
-            )
         )
 
 
@@ -500,6 +486,7 @@ async def send_board_post(
 
         body = "（本文なし）"
 
+
     # ======================================
     # Embed
     # ======================================
@@ -528,6 +515,7 @@ async def send_board_post(
             icon_url=interaction.user.display_avatar.url
         )
 
+
     # ======================================
     # ファイル
     # ======================================
@@ -551,9 +539,12 @@ async def send_board_post(
                 repr(e)
             )
 
+
     # ======================================
     # Discordへ送信
     # ======================================
+
+    sent_message = None
 
     if discord_files:
 
@@ -573,6 +564,7 @@ async def send_board_post(
                 post_num=post_count
             )
         )
+
 
     # ======================================
     # ログ
@@ -633,15 +625,18 @@ async def send_board_post(
                 inline=False
             )
 
-        log_embed.add_field(
-            name="🔗 メッセージリンク",
-            value=sent_message.jump_url,
-            inline=False
-        )
+        if sent_message:
+
+            log_embed.add_field(
+                name="🔗 メッセージリンク",
+                value=sent_message.jump_url,
+                inline=False
+            )
 
         await log_channel.send(
             embed=log_embed
         )
+
 
     # ======================================
     # 完了メッセージ
