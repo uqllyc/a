@@ -19,7 +19,10 @@ post_count = 0
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
-BOARD_CHANNEL_ID = 1543324852612505600
+# 掲示板チャンネル
+BOARD_CHANNEL_ID = 1543421344593485907
+
+# ログチャンネル
 LOG_CHANNEL_ID = 1543053996950945844
 
 
@@ -36,7 +39,13 @@ def home():
 
 
 def run_web():
-    port = int(os.environ.get("PORT", 10000))
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
 
     app.run(
         host="0.0.0.0",
@@ -45,6 +54,7 @@ def run_web():
 
 
 def keep_alive():
+
     thread = threading.Thread(
         target=run_web,
         daemon=True
@@ -64,7 +74,10 @@ intents.message_content = True
 class CustomBot(commands.Bot):
 
     async def setup_hook(self):
-        self.add_view(PanelView())
+
+        self.add_view(
+            PanelView()
+        )
 
 
 bot = CustomBot(
@@ -81,7 +94,7 @@ class TextPostModal(discord.ui.Modal):
 
     def __init__(
         self,
-        is_anonymous=False,
+        is_anonymous=None,
         reply_target=None
     ):
 
@@ -98,11 +111,7 @@ class TextPostModal(discord.ui.Modal):
 
         else:
 
-            title = (
-                "匿名投稿"
-                if is_anonymous
-                else "投稿"
-            )
+            title = "投稿"
 
         super().__init__(
             title=title
@@ -126,6 +135,46 @@ class TextPostModal(discord.ui.Modal):
                 component=self.content_input
             )
         )
+
+        # ==================================
+        # 匿名 / 非匿名
+        # 新規投稿の場合のみ表示
+        # ==================================
+
+        if self.is_anonymous is None:
+
+            self.type_select = discord.ui.Select(
+                custom_id="post_type",
+                placeholder="匿名 / 非匿名を選択",
+                min_values=1,
+                max_values=1
+            )
+
+            self.type_select.add_option(
+                label="匿名",
+                value="anonymous",
+                description="名前を表示せずに投稿します",
+                emoji="🕵️"
+            )
+
+            self.type_select.add_option(
+                label="非匿名",
+                value="named",
+                description="Discordの名前を表示して投稿します",
+                emoji="👤"
+            )
+
+            self.add_item(
+                discord.ui.Label(
+                    text="投稿形式",
+                    description="投稿方法を選択してください",
+                    component=self.type_select
+                )
+            )
+
+        else:
+
+            self.type_select = None
 
         # ==================================
         # 画像・動画
@@ -160,6 +209,43 @@ class TextPostModal(discord.ui.Modal):
             self.file_upload.values
         )
 
+        # ==================================
+        # 投稿形式
+        # ==================================
+
+        if self.is_anonymous is None:
+
+            if (
+                not self.type_select
+                or not self.type_select.values
+            ):
+
+                await interaction.response.send_message(
+                    "❌ 匿名または非匿名を選択してください。",
+                    ephemeral=True,
+                    delete_after=0.5
+                )
+
+                return
+
+            selected_type = self.type_select.values[0]
+
+            if selected_type == "anonymous":
+
+                is_anonymous = True
+
+            else:
+
+                is_anonymous = False
+
+        else:
+
+            is_anonymous = self.is_anonymous
+
+        # ==================================
+        # 空投稿チェック
+        # ==================================
+
         if not content and not attachments:
 
             await interaction.response.send_message(
@@ -173,7 +259,7 @@ class TextPostModal(discord.ui.Modal):
         await send_board_post(
             interaction=interaction,
             content=content,
-            is_anonymous=self.is_anonymous,
+            is_anonymous=is_anonymous,
             reply_target=self.reply_target,
             attachments=attachments
         )
@@ -272,6 +358,36 @@ class ReportModal(discord.ui.Modal):
             "✅ 通報を送信しました。",
             ephemeral=True,
             delete_after=0.5
+        )
+
+
+# ==========================================
+# メインパネル
+# ==========================================
+
+class PanelView(discord.ui.View):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=None
+        )
+
+
+    @discord.ui.button(
+        label="投稿",
+        emoji="📝",
+        style=discord.ButtonStyle.primary,
+        custom_id="panel_post"
+    )
+    async def post(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal()
         )
 
 
@@ -382,36 +498,6 @@ class PostItemView(discord.ui.View):
             ReportModal(
                 target_post=f"#{self.post_num}"
             )
-        )
-
-
-# ==========================================
-# メインパネル
-# ==========================================
-
-class PanelView(discord.ui.View):
-
-    def __init__(self):
-
-        super().__init__(
-            timeout=None
-        )
-
-
-    @discord.ui.button(
-        label="投稿",
-        emoji="📝",
-        style=discord.ButtonStyle.primary,
-        custom_id="panel_post"
-    )
-    async def post(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal()
         )
 
 
@@ -544,8 +630,6 @@ async def send_board_post(
     # Discordへ送信
     # ======================================
 
-    sent_message = None
-
     if discord_files:
 
         sent_message = await board_channel.send(
@@ -625,13 +709,11 @@ async def send_board_post(
                 inline=False
             )
 
-        if sent_message:
-
-            log_embed.add_field(
-                name="🔗 メッセージリンク",
-                value=sent_message.jump_url,
-                inline=False
-            )
+        log_embed.add_field(
+            name="🔗 メッセージリンク",
+            value=sent_message.jump_url,
+            inline=False
+        )
 
         await log_channel.send(
             embed=log_embed
