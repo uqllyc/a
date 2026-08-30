@@ -9,6 +9,10 @@ from discord import app_commands
 from discord.ext import commands
 
 
+# ==========================================
+# 基本設定
+# ==========================================
+
 JST = timezone(timedelta(hours=9))
 
 post_count = 0
@@ -32,7 +36,13 @@ def home():
 
 
 def run_web():
-    port = int(os.environ.get("PORT", 10000))
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
 
     app.run(
         host="0.0.0.0",
@@ -41,10 +51,12 @@ def run_web():
 
 
 def keep_alive():
+
     thread = threading.Thread(
         target=run_web,
         daemon=True
     )
+
     thread.start()
 
 
@@ -53,13 +65,17 @@ def keep_alive():
 # ==========================================
 
 intents = discord.Intents.default()
+
 intents.message_content = True
 
 
 class CustomBot(commands.Bot):
 
     async def setup_hook(self):
-        self.add_view(PanelView())
+
+        self.add_view(
+            PanelView()
+        )
 
 
 bot = CustomBot(
@@ -84,12 +100,15 @@ class TextPostModal(discord.ui.Modal):
         self.reply_target = reply_target
 
         if reply_target:
+
             title = (
                 "匿名返信"
                 if is_anonymous
                 else "非匿名返信"
             )
+
         else:
+
             title = (
                 "匿名投稿"
                 if is_anonymous
@@ -100,7 +119,10 @@ class TextPostModal(discord.ui.Modal):
             title=title
         )
 
+        # ==================================
         # 本文
+        # ==================================
+
         self.content_input = discord.ui.TextInput(
             custom_id="post_content",
             style=discord.TextStyle.paragraph,
@@ -116,7 +138,10 @@ class TextPostModal(discord.ui.Modal):
             )
         )
 
+        # ==================================
         # 画像・動画
+        # ==================================
+
         self.file_upload = discord.ui.FileUpload(
             custom_id="post_files",
             min_values=0,
@@ -124,9 +149,6 @@ class TextPostModal(discord.ui.Modal):
             required=False
         )
 
-        # ★重要
-        # FileUploadを直接add_itemせず
-        # Labelの中に入れる
         self.add_item(
             discord.ui.Label(
                 text="画像・動画",
@@ -153,7 +175,8 @@ class TextPostModal(discord.ui.Modal):
 
             await interaction.response.send_message(
                 "❌ 本文または画像・動画を選択してください。",
-                ephemeral=True
+                ephemeral=True,
+                delete_after=0.5
             )
 
             return
@@ -258,7 +281,65 @@ class ReportModal(discord.ui.Modal):
 
         await interaction.response.send_message(
             "✅ 通報を送信しました。",
-            ephemeral=True
+            ephemeral=True,
+            delete_after=0.5
+        )
+
+
+# ==========================================
+# 投稿方法選択
+# ==========================================
+
+class PostTypeView(discord.ui.View):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=60
+        )
+
+
+    # ======================================
+    # 匿名
+    # ======================================
+
+    @discord.ui.button(
+        label="匿名",
+        style=discord.ButtonStyle.primary,
+        custom_id="choose_anonymous"
+    )
+    async def anonymous(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=True
+            )
+        )
+
+
+    # ======================================
+    # 非匿名
+    # ======================================
+
+    @discord.ui.button(
+        label="非匿名",
+        style=discord.ButtonStyle.primary,
+        custom_id="choose_named"
+    )
+    async def named(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_modal(
+            TextPostModal(
+                is_anonymous=False
+            )
         )
 
 
@@ -276,38 +357,21 @@ class PanelView(discord.ui.View):
 
 
     @discord.ui.button(
-        label="匿名",
+        label="投稿",
+        emoji="📝",
         style=discord.ButtonStyle.primary,
-        custom_id="panel_anonymous"
+        custom_id="panel_post"
     )
-    async def anonymous(
+    async def post(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
 
-        await interaction.response.send_modal(
-            TextPostModal(
-                is_anonymous=True
-            )
-        )
-
-
-    @discord.ui.button(
-        label="非匿名",
-        style=discord.ButtonStyle.primary,
-        custom_id="panel_named"
-    )
-    async def named(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-
-        await interaction.response.send_modal(
-            TextPostModal(
-                is_anonymous=False
-            )
+        await interaction.response.send_message(
+            "投稿方法を選択してください。",
+            view=PostTypeView(),
+            ephemeral=True
         )
 
 
@@ -329,6 +393,10 @@ class PostItemView(discord.ui.View):
         self.post_num = post_num
 
 
+    # ======================================
+    # 匿名返信
+    # ======================================
+
     @discord.ui.button(
         label="匿名返信",
         style=discord.ButtonStyle.secondary,
@@ -348,6 +416,10 @@ class PostItemView(discord.ui.View):
         )
 
 
+    # ======================================
+    # 非匿名返信
+    # ======================================
+
     @discord.ui.button(
         label="非匿名返信",
         style=discord.ButtonStyle.secondary,
@@ -366,6 +438,10 @@ class PostItemView(discord.ui.View):
             )
         )
 
+
+    # ======================================
+    # 通報
+    # ======================================
 
     @discord.ui.button(
         label="通報",
@@ -427,6 +503,10 @@ async def send_board_post(
         "%Y/%m/%d %H:%M"
     )
 
+    # ======================================
+    # 本文
+    # ======================================
+
     author_name = (
         "匿名"
         if is_anonymous
@@ -445,7 +525,13 @@ async def send_board_post(
         body = content
 
     if not body:
+
         body = "（本文なし）"
+
+
+    # ======================================
+    # Embed
+    # ======================================
 
     embed = discord.Embed(
         description=body,
@@ -472,7 +558,10 @@ async def send_board_post(
         )
 
 
+    # ======================================
     # ファイル
+    # ======================================
+
     discord_files = []
 
     for attachment in attachments:
@@ -493,7 +582,10 @@ async def send_board_post(
             )
 
 
-    # 投稿
+    # ======================================
+    # Discordへ送信
+    # ======================================
+
     if discord_files:
 
         sent_message = await board_channel.send(
@@ -514,7 +606,10 @@ async def send_board_post(
         )
 
 
+    # ======================================
     # ログ
+    # ======================================
+
     if log_channel:
 
         log_embed = discord.Embed(
@@ -581,14 +676,19 @@ async def send_board_post(
         )
 
 
+    # ======================================
+    # 完了メッセージ
+    # ======================================
+
     await interaction.response.send_message(
         f"✅ 投稿しました！ #{post_count}",
-        ephemeral=True
+        ephemeral=True,
+        delete_after=0.5
     )
 
 
 # ==========================================
-# 直接投稿を削除
+# 掲示板への直接投稿を削除
 # ==========================================
 
 @bot.event
@@ -597,13 +697,17 @@ async def on_message(
 ):
 
     if message.author.bot:
+
         return
 
     if message.channel.id == BOARD_CHANNEL_ID:
 
         try:
+
             await message.delete()
+
         except Exception:
+
             pass
 
         return
@@ -614,7 +718,7 @@ async def on_message(
 
 
 # ==========================================
-# 起動
+# Bot起動
 # ==========================================
 
 @bot.event
@@ -672,7 +776,8 @@ async def setup_panel(
 
     await interaction.response.send_message(
         "✅ パネルを設置しました。",
-        ephemeral=True
+        ephemeral=True,
+        delete_after=0.5
     )
 
 
