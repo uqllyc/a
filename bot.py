@@ -1,5 +1,4 @@
 import os
-import asyncio
 import threading
 from datetime import datetime, timezone, timedelta
 
@@ -39,10 +38,6 @@ def home():
     return "Bot is running!"
 
 
-# ==========================================
-# Webサーバー
-# ==========================================
-
 def run_web():
 
     port = int(
@@ -61,10 +56,10 @@ def run_web():
 def keep_alive():
 
     thread = threading.Thread(
-        target=run_web
+        target=run_web,
+        daemon=True
     )
 
-    thread.daemon = True
     thread.start()
 
 
@@ -73,7 +68,6 @@ def keep_alive():
 # ==========================================
 
 intents = discord.Intents.default()
-
 intents.message_content = True
 
 
@@ -94,6 +88,7 @@ bot = CustomBot(
 
 # ==========================================
 # 投稿モーダル
+# 本文 + 画像/動画
 # ==========================================
 
 class TextPostModal(discord.ui.Modal):
@@ -107,47 +102,99 @@ class TextPostModal(discord.ui.Modal):
         self.is_anonymous = is_anonymous
         self.reply_target = reply_target
 
-        anon_text = (
-            "匿名"
-            if is_anonymous
-            else "非匿名"
-        )
+        if is_anonymous:
+            mode = "匿名"
+        else:
+            mode = "非匿名"
 
-        reply_text = (
-            f" {reply_target} 宛て"
-            if reply_target
-            else ""
-        )
+        if reply_target:
+            title = f"{mode}返信"
+        else:
+            title = f"{mode}投稿"
 
         super().__init__(
-            title=f"{anon_text}投稿{reply_text}"
+            title=title
         )
 
 
+        # ==================================
+        # 本文
+        # ==================================
+
         self.content_input = discord.ui.TextInput(
-            label="メッセージ",
+            custom_id="post_content",
             style=discord.TextStyle.paragraph,
             placeholder="メッセージを入力してください...",
-            required=True,
+            required=False,
             max_length=2000
         )
 
 
         self.add_item(
-            self.content_input
+            discord.ui.Label(
+                text="メッセージ",
+                component=self.content_input
+            )
         )
 
+
+        # ==================================
+        # ファイル
+        # ==================================
+
+        self.file_upload = discord.ui.FileUpload(
+            custom_id="post_files",
+            min_values=0,
+            max_values=4,
+            required=False
+        )
+
+
+        self.add_item(
+            discord.ui.Label(
+                text="画像・動画",
+                description="写真や動画を選択できます（最大4個）",
+                component=self.file_upload
+            )
+        )
+
+
+    # ======================================
+    # 送信
+    # ======================================
 
     async def on_submit(
         self,
         interaction: discord.Interaction
     ):
 
+        content = str(
+            self.content_input.value or ""
+        ).strip()
+
+
+        files = list(
+            self.file_upload.values
+        )
+
+
+        # 本文もファイルもない
+        if not content and not files:
+
+            await interaction.response.send_message(
+                "❌ 本文または画像・動画を選択してください。",
+                ephemeral=True
+            )
+
+            return
+
+
         await send_board_post(
             interaction=interaction,
-            content=self.content_input.value,
+            content=content,
             is_anonymous=self.is_anonymous,
-            reply_target=self.reply_target
+            reply_target=self.reply_target,
+            attachments=files
         )
 
 
@@ -164,28 +211,22 @@ class ReportModal(discord.ui.Modal):
 
         self.target_post = target_post
 
-        if target_post:
+        super().__init__(
+            title="🚨 通報"
+        )
 
-            title = f"🚨 通報 {target_post}"
+
+        default_text = ""
+
+        if target_post:
 
             default_text = (
                 f"{target_post} について: "
             )
 
-        else:
-
-            title = "🚨 管理者への通報"
-
-            default_text = ""
-
-
-        super().__init__(
-            title=title
-        )
-
 
         self.reason = discord.ui.TextInput(
-            label="通報理由",
+            custom_id="report_reason",
             style=discord.TextStyle.paragraph,
             placeholder="通報理由を入力してください...",
             default=default_text,
@@ -195,7 +236,10 @@ class ReportModal(discord.ui.Modal):
 
 
         self.add_item(
-            self.reason
+            discord.ui.Label(
+                text="通報理由",
+                component=self.reason
+            )
         )
 
 
@@ -212,7 +256,7 @@ class ReportModal(discord.ui.Modal):
         if not log_channel:
 
             await interaction.response.send_message(
-                "ログチャンネルが見つかりません。",
+                "❌ ログチャンネルが見つかりません。",
                 ephemeral=True
             )
 
@@ -353,7 +397,7 @@ class PostItemView(discord.ui.View):
     @discord.ui.button(
         label="匿名返信",
         style=discord.ButtonStyle.secondary,
-        custom_id="reply_anonymous"
+        custom_id="post_reply_anonymous"
     )
     async def reply_anonymous(
         self,
@@ -376,7 +420,7 @@ class PostItemView(discord.ui.View):
     @discord.ui.button(
         label="非匿名返信",
         style=discord.ButtonStyle.secondary,
-        custom_id="reply_named"
+        custom_id="post_reply_named"
     )
     async def reply_named(
         self,
@@ -399,7 +443,7 @@ class PostItemView(discord.ui.View):
     @discord.ui.button(
         label="通報",
         style=discord.ButtonStyle.danger,
-        custom_id="report_post"
+        custom_id="post_report"
     )
     async def report(
         self,
@@ -422,7 +466,8 @@ async def send_board_post(
     interaction: discord.Interaction,
     content: str,
     is_anonymous: bool,
-    reply_target: str = None
+    reply_target: str = None,
+    attachments=None
 ):
 
     global post_count
@@ -446,6 +491,11 @@ async def send_board_post(
         )
 
         return
+
+
+    if attachments is None:
+
+        attachments = []
 
 
     post_count += 1
@@ -489,6 +539,11 @@ async def send_board_post(
         body = content
 
 
+    if not body:
+
+        body = "（本文なし）"
+
+
     # ======================================
     # Embed
     # ======================================
@@ -521,15 +576,54 @@ async def send_board_post(
 
 
     # ======================================
+    # ファイルをDiscord Fileへ変換
+    # ======================================
+
+    discord_files = []
+
+
+    for attachment in attachments:
+
+        try:
+
+            discord_file = await attachment.to_file(
+                use_cached=True
+            )
+
+            discord_files.append(
+                discord_file
+            )
+
+        except Exception as e:
+
+            print(
+                "ファイル変換エラー:",
+                repr(e)
+            )
+
+
+    # ======================================
     # Discordへ投稿
     # ======================================
 
-    sent_message = await board_channel.send(
-        embed=embed,
-        view=PostItemView(
-            post_num=post_count
+    if discord_files:
+
+        sent_message = await board_channel.send(
+            embed=embed,
+            files=discord_files,
+            view=PostItemView(
+                post_num=post_count
+            )
         )
-    )
+
+    else:
+
+        sent_message = await board_channel.send(
+            embed=embed,
+            view=PostItemView(
+                post_num=post_count
+            )
+        )
 
 
     # ======================================
@@ -540,7 +634,7 @@ async def send_board_post(
 
         log_embed = discord.Embed(
             title=f"📋【投稿ログ #{post_count}】",
-            description=content,
+            description=content or "（本文なし）",
             color=0x2b2d31
         )
 
@@ -583,6 +677,21 @@ async def send_board_post(
         )
 
 
+        if attachments:
+
+            file_names = "\n".join(
+                f"📎 {a.filename}"
+                for a in attachments
+            )
+
+
+            log_embed.add_field(
+                name="📎 添付ファイル",
+                value=file_names[:1024],
+                inline=False
+            )
+
+
         log_embed.add_field(
             name="🔗 メッセージリンク",
             value=sent_message.jump_url,
@@ -596,7 +705,7 @@ async def send_board_post(
 
 
     # ======================================
-    # 完了通知
+    # 完了
     # ======================================
 
     await interaction.response.send_message(
@@ -680,7 +789,7 @@ async def setup_panel(
         title="📝 掲示板",
         description=(
             "匿名または非匿名で投稿できます。\n"
-            "下のボタンを押して投稿してください。"
+            "下のボタンから投稿してください。"
         ),
         color=0x000000
     )
